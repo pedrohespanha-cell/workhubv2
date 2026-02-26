@@ -14,6 +14,9 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ p, prodSettings,
   const isWrapped = p.status === 'Wrapped';
   const isRumoured = p.status === 'Rumoured';
 
+  const lxRate = getCurrentRate(p.tier, 'Lighting Technician');
+  const rigRate = getCurrentRate(p.tier, 'Rigging LX');
+
   return (
     <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border dark:border-slate-800 shadow-sm hover:shadow-xl transition-all flex flex-col overflow-hidden relative group cursor-pointer" onClick={onClick}>
       {isWrapped && <div className="absolute top-0 right-0 bg-slate-200 dark:bg-slate-800 text-slate-500 text-[8px] font-black px-3 py-1 rounded-bl-xl uppercase tracking-widest">Wrapped</div>}
@@ -25,6 +28,22 @@ export const ProductionCard: React.FC<ProductionCardProps> = ({ p, prodSettings,
         <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 bg-slate-50 dark:bg-slate-950 inline-block px-2 py-1 rounded-lg border dark:border-slate-800 self-start">{p.dates || 'Dates TBA'}</p>
 
         <div className="space-y-2 mt-auto">
+          {(lxRate || rigRate) && (
+            <div className="pt-2 mb-4 border-t dark:border-slate-800 space-y-1">
+              {lxRate && (
+                <div className="flex justify-between items-center text-[9px]">
+                  <span className="text-slate-400 font-black uppercase">Shooting LX</span>
+                  <span className="font-bold text-emerald-500">${lxRate.toFixed(2)}/hr</span>
+                </div>
+              )}
+              {rigRate && (
+                <div className="flex justify-between items-center text-[9px]">
+                  <span className="text-slate-400 font-black uppercase">Rigging LX</span>
+                  <span className="font-bold text-emerald-500">${rigRate.toFixed(2)}/hr</span>
+                </div>
+              )}
+            </div>
+          )}
           <div>
             <div className="flex justify-between items-center mb-0.5">
               <p className="text-[9px] text-slate-400 font-black uppercase">{prodSettings.role1}</p>

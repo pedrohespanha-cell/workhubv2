@@ -14,6 +14,10 @@ export interface Production {
   dates: string;
   tier: string;
   status: 'Active' | 'Wrapped' | 'Rumoured';
+  address?: string;
+  phone?: string;
+  contractLink?: string;
+  callSheetLink?: string;
 }
 
 export interface Entry {
@@ -42,6 +46,9 @@ export interface DashSettings {
   days: boolean;
   shows: boolean;
   pending: boolean;
+  weeksWorked: boolean;
+  avgPerWeek: boolean;
+  avgPerMonth: boolean;
   weekGross: boolean;
   weekNet: boolean;
   weekHourlyGross: boolean;

@@ -43,6 +43,26 @@ export const parsePDFFile = async (file: File): Promise<Production[]> => {
     const linesAfterEmail = block.split(/\n/).map(l=>l.trim()).filter(Boolean);
     let dates = '';
     let tier = '';
+    let address = '';
+    let phone = '';
+    let contractLink = '';
+    let callSheetLink = '';
+
+    const phoneMatch = block.match(/(\d{3}[-.\s]\d{3}[-.\s]\d{4})/);
+    if (phoneMatch) phone = phoneMatch[0];
+
+    const urlMatches = block.match(/https?:\/\/[^\s]+/g);
+    if (urlMatches) {
+      urlMatches.forEach(url => {
+        const lower = url.toLowerCase();
+        if (lower.includes('contract')) contractLink = url;
+        if (lower.includes('call') && lower.includes('sheet')) callSheetLink = url;
+      });
+    }
+
+    const addrMatch = block.match(/\d+\s+[A-Za-z0-9\s,]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Way|Drive|Dr|Lane|Ln|Court|Ct|Circle|Cir|Plaza|Plz|Square|Sq|Trail|Trl|Parkway|Pkwy|Mews|Crescent|Cres|Place|Pl|Gardens|Gdns|Row|Walk|Terrace|Ter|Close|Cl|Grove|Grv|View|Vw|Rise|Rse|Common|Cmn|Way|Wy|Gate|Gt|Link|Lnk|Loop|Lp|Path|Pth|Track|Trk|Trail|Trl|Highway|Hwy|Expressway|Expy|Freeway|Fwy|Turnpike|Tpk|Tollway|Tly|Bypass|Byp|Park|Pk|Avenue|Ave|Boulevard|Blvd|Circle|Cir|Court|Ct|Drive|Dr|Lane|Ln|Place|Pl|Road|Rd|Square|Sq|Street|St|Terrace|Ter|Way|Wy|Crescent|Cres|Mews|Row|Walk|Close|Cl|Grove|Grv|View|Vw|Rise|Rse|Common|Cmn|Gate|Gt|Link|Lnk|Loop|Lp|Path|Pth|Track|Trk|Trail|Trl|Highway|Hwy|Expressway|Expy|Freeway|Fwy|Turnpike|Tpk|Tollway|Tly|Bypass|Byp|Park|Pk)\.?\s*,?\s*[A-Za-z\s,]+,\s*[A-Z]{2}\s+[A-Z0-9\s]+/i);
+    if (addrMatch) address = addrMatch[0].trim();
+
     for(let j=0; j<linesAfterEmail.length; j++) {
       const line = linesAfterEmail[j];
       if(line.match(/^[A-Z][a-z]{2} \d{2} 202\d to [A-Z][a-z]{2} \d{2} 202\d/)) {
@@ -70,6 +90,10 @@ export const parsePDFFile = async (file: File): Promise<Production[]> => {
       crew, 
       dates, 
       tier, 
+      address,
+      phone,
+      contractLink,
+      callSheetLink,
       status: title.startsWith('WRAPPED') ? 'Wrapped' : 'Active' 
     });
   }

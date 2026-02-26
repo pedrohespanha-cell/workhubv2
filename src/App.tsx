@@ -62,6 +62,23 @@ const App: React.FC = () => {
   const [isEditingEntry, setIsEditingEntry] = useState(false);
   const [scratchpadText, setScratchpadText] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const saveToHistory = (newEntries: Entry[], newProds: Production[] = productions) => {
+    setHistory(prev => [...prev.slice(-9), { entries, productions }]);
+    setEntries(newEntries);
+    setProductions(newProds);
+  };
+
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    const prev = history[history.length - 1];
+    setEntries(prev.entries);
+    setProductions(prev.productions);
+    setHistory(h => h.slice(0, -1));
+    showStatus("Undo successful");
+  };
 
   const [dashSettings, setDashSettings] = useState<DashSettings>(DEFAULT_DASH_SETTINGS);
   const [isDashSettingsOpen, setIsDashSettingsOpen] = useState(false);
@@ -91,6 +108,9 @@ const App: React.FC = () => {
         
         if (!firebaseConfig.projectId) {
           setFbInitialized(true);
+          const e = localStorage.getItem('pt_entries'); if (e) setEntries(JSON.parse(e));
+          const p = localStorage.getItem('pt_prods'); if (p) setProductions(JSON.parse(p));
+          setIsLoading(false);
           return;
         }
 
@@ -221,10 +241,33 @@ const App: React.FC = () => {
     }
   };
 
+  const handleWebArchiveImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    showStatus('Parsing WebArchive...');
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      const text = new TextDecoder().decode(bytes);
+      const htmlMatch = text.match(/<html[\s\S]*<\/html>/i);
+      if (htmlMatch) {
+        const parsed = parseHTMLText(htmlMatch[0]);
+        saveProductions(parsed);
+        showStatus(`Imported ${parsed.length} shows!`);
+        setProdTab('dashboard');
+      } else {
+        showStatus("Could not find HTML in archive");
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus("Error parsing archive");
+    }
+  };
+
   const handleWipeDatabase = async (type: string) => {
     if (!db || !user) {
-      if (type === 'productions') setProductions([]);
-      if (type === 'entries') setEntries([]);
+      if (type === 'productions') saveToHistory(entries, []);
+      if (type === 'entries') saveToHistory([], productions);
     } else {
       const coll = collection(db, 'artifacts', appId, 'users', user.uid, type);
       const snapshot = await getDocs(coll);
@@ -278,6 +321,8 @@ const App: React.FC = () => {
     });
 
     const pendingChecks = Object.values(weekShowCombos).filter(c => !c.hasPay).length;
+    const weeksSet = new Set(filteredEntries.map(e => getWeekKey(e.date)));
+    const monthsSet = new Set(filteredEntries.map(e => e.date.substring(0, 7)));
 
     return { 
       gross: g, 
@@ -286,6 +331,9 @@ const App: React.FC = () => {
       payableHours: payableH,
       days: daysSet.size,
       shows: showsSet.size,
+      weeksWorked: weeksSet.size,
+      avgPerWeek: weeksSet.size ? g / weeksSet.size : 0,
+      avgPerMonth: monthsSet.size ? g / monthsSet.size : 0,
       pending: pendingChecks, 
       avgG: actualH ? g / actualH : 0, 
       avgN: actualH ? n / actualH : 0 
@@ -366,6 +414,20 @@ const App: React.FC = () => {
 
   async function handleTsSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Duplicate check
+    if (!isEditingEntry) {
+      const isDuplicate = entries.some(ent => 
+        ent.date === formData.date && 
+        ent.show === formData.show && 
+        ent.startTime === formData.startTime
+      );
+      if (isDuplicate) {
+        showStatus("Duplicate entry detected!");
+        return;
+      }
+    }
+
     const h = calculateHours(formData.startTime, formData.endTime);
     const ph = calculateOT(h, formData.minPayType);
     const ent: Entry = { ...formData, id: isEditingEntry ? formData.id : Date.now(), hours: h, payableHours: ph, gross: formData.gross === '' ? '' : parseFloat(formData.gross as string), net: formData.net === '' ? '' : parseFloat(formData.net as string) };
@@ -379,7 +441,7 @@ const App: React.FC = () => {
     localStorage.setItem('pt_last_times', JSON.stringify({ start: formData.startTime, end: formData.endTime }));
 
     if (!db || !user) {
-      setEntries(prev => isEditingEntry ? prev.map(x => x.id === ent.id ? ent : x) : [...prev, ent]);
+      saveToHistory(isEditingEntry ? entries.map(x => x.id === ent.id ? ent : x) : [...entries, ent]);
     } else {
       await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(ent.id)), ent);
     }
@@ -389,7 +451,7 @@ const App: React.FC = () => {
   }
 
   async function handleTsDelete(id: number) {
-    if (!db || !user) setEntries(prev => prev.filter(e => e.id !== id));
+    if (!db || !user) saveToHistory(entries.filter(e => e.id !== id));
     else await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(id)));
   }
 
@@ -427,6 +489,11 @@ const App: React.FC = () => {
       for (let i = 1; i < lines.length; i++) {
         const p = parseCSVLine(lines[i]);
         if (p.length >= 8) {
+          // Duplicate check
+          const isDuplicate = entries.some(ent => ent.date === p[0] && ent.show === p[1] && ent.startTime === p[3]) ||
+                             batch.some(ent => ent.date === p[0] && ent.show === p[1] && ent.startTime === p[3]);
+          if (isDuplicate) continue;
+
           const h = parseFloat(p[8]) || 0;
           batch.push({ 
             id: Date.now() + i, 
@@ -520,11 +587,26 @@ const App: React.FC = () => {
             <button onClick={() => setMainMode('productions')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'productions' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Shows</button>
             <button onClick={() => setMainMode('reports')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'reports' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Reports</button>
           </div>
-          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 text-slate-400"><Icons.Moon /></button>
+          <div className="flex gap-2 items-center">
+            {history.length > 0 && (
+              <button onClick={handleUndo} className="p-2 text-brand-500 hover:bg-brand-500/10 rounded-xl transition-all" title="Undo Last Change">
+                <Icons.Undo />
+              </button>
+            )}
+            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 text-slate-400"><Icons.Moon /></button>
+          </div>
         </div>
       </nav>
 
-      {mainMode === 'timesheets' && (
+      <main className="max-w-7xl mx-auto px-4 py-8">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-24 space-y-4">
+            <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Loading Data...</p>
+          </div>
+        ) : (
+          <>
+            {mainMode === 'timesheets' && (
         <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
           <button onClick={() => setIsMobileFormOpen(true)} className="lg:hidden fixed bottom-8 right-8 w-16 h-16 bg-brand-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform border-4 border-white dark:border-slate-900"><Icons.Plus /></button>
 
@@ -686,23 +768,33 @@ const App: React.FC = () => {
               </div>
             )}
             {prodTab === 'import' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl flex flex-col items-center justify-center text-center relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-brand-500"></div>
                   <div className="p-6 bg-brand-500/10 text-brand-500 rounded-full mb-6"><Icons.Upload /></div>
-                  <h3 className="font-black text-2xl mb-2">Import from HTML</h3>
-                  <p className="text-xs text-slate-500 mb-6 font-bold max-w-sm">Right-click the webpage, view source, copy all, and paste below. Highly reliable offline parsing.</p>
+                  <h3 className="font-black text-2xl mb-2">HTML Source</h3>
+                  <p className="text-xs text-slate-500 mb-6 font-bold max-w-sm">Paste the HTML source code from the production page.</p>
                   <textarea value={scratchpadText} onChange={e => setScratchpadText(e.target.value)} placeholder="<!DOCTYPE html>..." className="w-full h-32 bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-3xl text-xs font-mono outline-none focus:ring-2 ring-brand-500 mb-4" />
                   <button onClick={handleHTMLImport} className="w-full py-4 bg-brand-600 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl hover:bg-brand-500 transition-colors">Process HTML</button>
                 </div>
                 <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl flex flex-col items-center justify-center text-center relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-full h-1 bg-rose-500"></div>
                   <div className="p-6 bg-rose-500/10 text-rose-500 rounded-full mb-6"><Icons.Upload /></div>
-                  <h3 className="font-black text-2xl mb-2">Import from PDF</h3>
-                  <p className="text-xs text-slate-500 mb-8 font-bold max-w-sm">Upload the official PDF export. This uses a strict offline regex parser for fast results.</p>
+                  <h3 className="font-black text-2xl mb-2">PDF Export</h3>
+                  <p className="text-xs text-slate-500 mb-8 font-bold max-w-sm">Upload the official PDF export for offline parsing.</p>
                   <label className="w-full py-4 bg-rose-600 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl cursor-pointer hover:bg-rose-500 transition-colors block text-center">
-                    Select PDF File
+                    Select PDF
                     <input type="file" className="hidden" accept="application/pdf" onChange={handlePDFUpload} />
+                  </label>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl flex flex-col items-center justify-center text-center relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-full h-1 bg-indigo-500"></div>
+                  <div className="p-6 bg-indigo-500/10 text-indigo-500 rounded-full mb-6"><Icons.Upload /></div>
+                  <h3 className="font-black text-2xl mb-2">Web Archive</h3>
+                  <p className="text-xs text-slate-500 mb-8 font-bold max-w-sm">Upload a .webarchive file saved from Safari on iPhone.</p>
+                  <label className="w-full py-4 bg-indigo-600 text-white font-black uppercase tracking-widest text-[10px] rounded-2xl cursor-pointer hover:bg-indigo-500 transition-colors block text-center">
+                    Select .webarchive
+                    <input type="file" className="hidden" accept=".webarchive" onChange={handleWebArchiveImport} />
                   </label>
                 </div>
               </div>
@@ -711,36 +803,39 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {mainMode === 'reports' && (
-        <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
-          <div className="flex justify-between items-center mb-8">
-            <h2 className="text-3xl font-black tracking-tight flex items-center gap-3"><Icons.Chart /> Monthly Efficiency</h2>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setIsDashSettingsOpen(true)} className="p-2 bg-white dark:bg-slate-900 border dark:border-slate-800 shadow-sm rounded-xl text-slate-500 hover:text-brand-500 transition-colors shrink-0"><Icons.Settings /></button>
-              <button onClick={() => setWipeModal('entries')} className="text-[9px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 px-3 py-2 rounded-lg flex items-center gap-1"><Icons.Wipe /> Wipe Logs</button>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">
-            {monthlyReports.map(([m, d]) => (
-              <div key={m} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm flex flex-col">
-                <div className="flex justify-between items-center mb-6">
-                  <h4 className="font-black text-xl capitalize">{new Date(m + '-02T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
-                </div>
-                
-                <div className="flex-1 mb-6">
-                  <StatGrid sourceData={d} dashSettings={dashSettings} />
-                </div>
-                
-                <div className="pt-4 border-t dark:border-slate-800">
-                  <div className="flex flex-wrap gap-2">
-                    {[...d.shows].map(s => <span key={s} className="text-[9px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-1 rounded-md">{s}</span>)}
+            {mainMode === 'reports' && (
+              <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
+                <div className="flex justify-between items-center mb-8">
+                  <h2 className="text-3xl font-black tracking-tight flex items-center gap-3"><Icons.Chart /> Monthly Efficiency</h2>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setIsDashSettingsOpen(true)} className="p-2 bg-white dark:bg-slate-900 border dark:border-slate-800 shadow-sm rounded-xl text-slate-500 hover:text-brand-500 transition-colors shrink-0"><Icons.Settings /></button>
+                    <button onClick={() => setWipeModal('entries')} className="text-[9px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 px-3 py-2 rounded-lg flex items-center gap-1"><Icons.Wipe /> Wipe Logs</button>
                   </div>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-24">
+                  {monthlyReports.map(([m, d]) => (
+                    <div key={m} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm flex flex-col">
+                      <div className="flex justify-between items-center mb-6">
+                        <h4 className="font-black text-xl capitalize">{new Date(m + '-02T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
+                      </div>
+                      
+                      <div className="flex-1 mb-6">
+                        <StatGrid sourceData={d} dashSettings={dashSettings} />
+                      </div>
+                      
+                      <div className="pt-4 border-t dark:border-slate-800">
+                        <div className="flex flex-wrap gap-2">
+                          {[...d.shows].map(s => <span key={s} className="text-[9px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-1 rounded-md">{s}</span>)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </main>
 
       <PayModal 
         isOpen={payModal.isOpen} 

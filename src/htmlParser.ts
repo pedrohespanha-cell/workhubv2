@@ -17,6 +17,10 @@ export const parseHTMLText = (htmlString: string): Production[] => {
     let payroll = '';
     let dates = '';
     let tier = '';
+    let address = '';
+    let phone = '';
+    let contractLink = '';
+    let callSheetLink = '';
     
     const tableTop = item.querySelector('.table-headertop-content');
     if (tableTop) {
@@ -27,6 +31,22 @@ export const parseHTMLText = (htmlString: string): Production[] => {
       if (mailto && !mailto.innerText.toLowerCase().includes('payroll')) {
         prodEmail = mailto.innerText.trim();
       }
+
+      // Links scraping
+      const links = item.querySelectorAll('a');
+      links.forEach(l => {
+        const t = l.innerText.toLowerCase();
+        if (t.includes('contract')) contractLink = l.href;
+        if (t.includes('call sheet')) callSheetLink = l.href;
+      });
+
+      // Address & Phone scraping
+      const text = tableTop.textContent || '';
+      const phoneMatch = text.match(/(\d{3}[-.\s]\d{3}[-.\s]\d{4})/);
+      if (phoneMatch) phone = phoneMatch[0];
+
+      const addrMatch = text.match(/\d+\s+[A-Za-z0-9\s,]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Way|Drive|Dr|Lane|Ln|Court|Ct|Circle|Cir|Plaza|Plz|Square|Sq|Trail|Trl|Parkway|Pkwy|Mews|Crescent|Cres|Place|Pl|Gardens|Gdns|Row|Walk|Terrace|Ter|Close|Cl|Grove|Grv|View|Vw|Rise|Rse|Common|Cmn|Way|Wy|Gate|Gt|Link|Lnk|Loop|Lp|Path|Pth|Track|Trk|Trail|Trl|Highway|Hwy|Expressway|Expy|Freeway|Fwy|Turnpike|Tpk|Tollway|Tly|Bypass|Byp|Park|Pk|Avenue|Ave|Boulevard|Blvd|Circle|Cir|Court|Ct|Drive|Dr|Lane|Ln|Place|Pl|Road|Rd|Square|Sq|Street|St|Terrace|Ter|Way|Wy|Crescent|Cres|Mews|Row|Walk|Close|Cl|Grove|Grv|View|Vw|Rise|Rse|Common|Cmn|Gate|Gt|Link|Lnk|Loop|Lp|Path|Pth|Track|Trk|Trail|Trl|Highway|Hwy|Expressway|Expy|Freeway|Fwy|Turnpike|Tpk|Tollway|Tly|Bypass|Byp|Park|Pk)\.?\s*,?\s*[A-Za-z\s,]+,\s*[A-Z]{2}\s+[A-Z0-9\s]+/i);
+      if (addrMatch) address = addrMatch[0].trim();
     }
 
     const emailEl = item.querySelector('p[style*="color:green"]') as HTMLElement;
@@ -69,6 +89,10 @@ export const parseHTMLText = (htmlString: string): Production[] => {
       crew, 
       dates, 
       tier, 
+      address,
+      phone,
+      contractLink,
+      callSheetLink,
       status: name.startsWith('WRAPPED') ? 'Wrapped' : 'Active' 
     });
   });

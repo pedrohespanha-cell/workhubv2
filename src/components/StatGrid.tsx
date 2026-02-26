@@ -46,6 +46,9 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
   if (dashSettings.payableHrs) dps.push({ label: 'Payable Hrs', val: p.toFixed(1), type: 'normal' });
   if (dashSettings.days) dps.push({ label: 'Days Worked', val: daysC, type: 'normal' });
   if (dashSettings.shows) dps.push({ label: 'Shows Worked', val: showsC, type: 'normal' });
+  if (dashSettings.weeksWorked) dps.push({ label: 'Weeks Worked', val: sourceData.weeksWorked || 0, type: 'normal' });
+  if (dashSettings.avgPerWeek) dps.push({ label: 'Avg / Week', val: formatCurr(sourceData.avgPerWeek || 0), type: 'emerald-light' });
+  if (dashSettings.avgPerMonth) dps.push({ label: 'Avg / Month', val: formatCurr(sourceData.avgPerMonth || 0), type: 'brand-light' });
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

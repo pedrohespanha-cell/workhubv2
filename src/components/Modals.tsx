@@ -101,6 +101,9 @@ export const DashSettingsModal: React.FC<DashSettingsModalProps> = ({ isOpen, on
             { key: 'payableHrs', label: 'Payable Hours (incl. guarantee)' },
             { key: 'days', label: 'Total Days Worked' },
             { key: 'shows', label: 'Total Shows Worked' },
+            { key: 'weeksWorked', label: 'Total Weeks Worked' },
+            { key: 'avgPerWeek', label: 'Average Per Week' },
+            { key: 'avgPerMonth', label: 'Average Per Month' },
             { key: 'pending', label: 'Pending Cheques Warning' }
           ].map(opt => (
             <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
@@ -194,10 +197,57 @@ export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd,
             </div>
           </div>
 
-          {viewingProd.prodEmail && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {viewingProd.prodEmail && (
+              <div className="p-4 rounded-2xl border dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                <p className="text-[9px] uppercase font-black text-slate-400 mb-1 tracking-widest">Production Office Email</p>
+                <a href={`mailto:${viewingProd.prodEmail}`} className="font-bold text-brand-500 break-all text-sm hover:underline">{viewingProd.prodEmail}</a>
+              </div>
+            )}
+            {viewingProd.phone && (
+              <div className="p-4 rounded-2xl border dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                <p className="text-[9px] uppercase font-black text-slate-400 mb-1 tracking-widest">Phone Number</p>
+                <a href={`tel:${viewingProd.phone}`} className="font-bold text-brand-500 flex items-center gap-2 text-sm hover:underline">
+                  <Icons.Phone /> {viewingProd.phone}
+                </a>
+              </div>
+            )}
+          </div>
+
+          {viewingProd.address && (
             <div className="p-4 rounded-2xl border dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
-              <p className="text-[9px] uppercase font-black text-slate-400 mb-1 tracking-widest">Production Office Email</p>
-              <a href={`mailto:${viewingProd.prodEmail}`} className="font-bold text-brand-500 break-all text-sm hover:underline">{viewingProd.prodEmail}</a>
+              <p className="text-[9px] uppercase font-black text-slate-400 mb-1 tracking-widest">Production Address</p>
+              <a 
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(viewingProd.address)}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="font-bold text-brand-500 flex items-center gap-2 text-sm hover:underline"
+              >
+                <Icons.MapPin /> {viewingProd.address}
+              </a>
+            </div>
+          )}
+
+          {(viewingProd.contractLink || viewingProd.callSheetLink) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {viewingProd.contractLink && (
+                <a href={viewingProd.contractLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-brand-200 bg-brand-50 dark:bg-brand-900/10 dark:border-brand-500/30 flex items-center justify-between group">
+                  <div>
+                    <p className="text-[9px] uppercase font-black text-brand-600 dark:text-brand-400 mb-1 tracking-widest">Contract</p>
+                    <p className="font-bold text-sm">View Document</p>
+                  </div>
+                  <Icons.Link />
+                </a>
+              )}
+              {viewingProd.callSheetLink && (
+                <a href={viewingProd.callSheetLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-brand-200 bg-brand-50 dark:bg-brand-900/10 dark:border-brand-500/30 flex items-center justify-between group">
+                  <div>
+                    <p className="text-[9px] uppercase font-black text-brand-600 dark:text-brand-400 mb-1 tracking-widest">Call Sheet</p>
+                    <p className="font-bold text-sm">View Document</p>
+                  </div>
+                  <Icons.Link />
+                </a>
+              )}
             </div>
           )}
 
