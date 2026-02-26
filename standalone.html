@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Payroll & Production Tracker Pro - Standalone</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { 
+        extend: {
+          colors: {
+            brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1' }
+          }
+        } 
+      }
+    }
+  </script>
+
+  <!-- React & Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <!-- PDF.js for Offline Parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- Firebase Modular SDKs (v11) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    
+    window.FB = { initializeApp, getAuth, onAuthStateChanged, signInAnonymously, getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, writeBatch, getDocs };
+    window.dispatchEvent(new Event('firebaseLoaded'));
+  </script>
+
+  <style>
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    .animate-slide-up { animation: slideUp 0.3s ease-out; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-200 font-sans min-h-screen transition-colors duration-200">
+  
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback, useRef } = React;
+
+    // --- CONSTANTS ---
+    const WAGE_PERIODS = [
+      { start: "2023-04-02", end: "2024-03-30", idx: 0 },
+      { start: "2024-03-31", end: "2025-03-29", idx: 1 },
+      { start: "2025-03-30", end: "2026-03-28", idx: 2 },
+      { start: "2026-03-29", end: "2027-04-03", idx: 3 },
+      { start: "2027-04-04", end: "2028-03-31", idx: 4 }
+    ];
+
+    const POSITIONS = [
+      "Gaffer", "Rigging Gaffer", "Best Boy", "Best Boy Rigging", 
+      "Lighting Technician", "Rigging LX", "Key Grip", "Key Rigging Grip", 
+      "Best Boy Grip", "Grip", "Second Rigging Grip", "Rigging Grip"
+    ];
+
+    const MAP_POS = {
+      "Gaffer": "Head Lighting Technician (incl. Lighting Board Operator)",
+      "Rigging Gaffer": "Head Rigging Lighting Technician",
+      "Best Boy": "Second Lighting Technician",
+      "Best Boy Rigging": "Second Rigging Lighting Technician",
+      "Lighting Technician": "Lighting Technician",
+      "Rigging LX": "Rigging Lighting Technician",
+      "Key Grip": "Key Grip",
+      "Key Rigging Grip": "Key Rigging Grip",
+      "Best Boy Grip": "Assistant Key Grip (Best Boy)",
+      "Grip": "Grip",
+      "Second Rigging Grip": "Second Rigging Grip",
+      "Rigging Grip": "Rigging Grip"
+    };
+
+    const WAGES = {
+      "Feature Films": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [53.05, 55.70, 57.93, 59.96, 61.76],
+        "Second Lighting Technician": [48.25, 50.66, 52.69, 54.53, 56.17],
+        "Lighting Technician": [46.26, 48.57, 50.51, 52.28, 53.85],
+        "Head Rigging Lighting Technician": [48.25, 50.66, 52.69, 54.53, 56.17],
+        "Second Rigging Lighting Technician": [46.26, 48.57, 50.51, 52.28, 53.85],
+        "Rigging Lighting Technician": [43.00, 45.15, 46.96, 48.60, 50.06],
+        "Key Grip": [53.05, 55.70, 57.93, 59.96, 61.76],
+        "Assistant Key Grip (Best Boy)": [48.25, 50.66, 52.69, 54.53, 56.17],
+        "Grip": [46.26, 48.57, 50.51, 52.28, 53.85],
+        "Key Rigging Grip": [48.25, 50.66, 52.69, 54.53, 56.17],
+        "Second Rigging Grip": [46.26, 48.57, 50.51, 52.28, 53.85],
+        "Rigging Grip": [43.00, 45.15, 46.96, 48.60, 50.06]
+      },
+      "Low Budget Feature Films": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [47.74, 50.13, 52.14, 53.96, 55.58],
+        "Second Lighting Technician": [43.43, 45.60, 47.42, 49.08, 50.55],
+        "Lighting Technician": [41.63, 43.71, 45.46, 47.05, 48.47],
+        "Head Rigging Lighting Technician": [43.43, 45.60, 47.42, 49.08, 50.55],
+        "Second Rigging Lighting Technician": [41.63, 43.71, 45.46, 47.05, 48.47],
+        "Rigging Lighting Technician": [38.70, 40.64, 42.26, 43.74, 45.05],
+        "Key Grip": [47.74, 50.13, 52.14, 53.96, 55.58],
+        "Assistant Key Grip (Best Boy)": [43.43, 45.60, 47.42, 49.08, 50.55],
+        "Grip": [41.63, 43.71, 45.46, 47.05, 48.47],
+        "Key Rigging Grip": [43.43, 45.60, 47.42, 49.08, 50.55],
+        "Second Rigging Grip": [41.63, 43.71, 45.46, 47.05, 48.47],
+        "Rigging Grip": [38.70, 40.64, 42.26, 43.74, 45.05]
+      },
+      "Standard Television": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [46.68, 49.95, 51.95, 53.77, 55.38],
+        "Second Lighting Technician": [42.48, 45.45, 47.27, 48.92, 50.39],
+        "Lighting Technician": [38.86, 41.58, 43.24, 44.75, 46.09],
+        "Head Rigging Lighting Technician": [42.48, 45.45, 47.27, 48.92, 50.39],
+        "Second Rigging Lighting Technician": [38.86, 41.58, 43.24, 44.75, 46.09],
+        "Rigging Lighting Technician": [36.12, 38.65, 40.20, 41.61, 42.86],
+        "Key Grip": [46.68, 49.95, 51.95, 53.77, 55.38],
+        "Assistant Key Grip (Best Boy)": [42.48, 45.45, 47.27, 48.92, 50.39],
+        "Grip": [38.86, 41.58, 43.24, 44.75, 46.09],
+        "Key Rigging Grip": [42.48, 45.45, 47.27, 48.92, 50.39],
+        "Second Rigging Grip": [38.86, 41.58, 43.24, 44.75, 46.09],
+        "Rigging Grip": [36.12, 38.65, 40.20, 41.61, 42.86]
+      },
+      "Premium Network & SVOD": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [51.12, 53.68, 55.83, 57.78, 59.51],
+        "Second Lighting Technician": [46.52, 48.85, 50.80, 52.58, 54.16],
+        "Lighting Technician": [42.56, 44.68, 46.47, 48.10, 49.54],
+        "Head Rigging Lighting Technician": [46.52, 48.85, 50.80, 52.58, 54.16],
+        "Second Rigging Lighting Technician": [42.56, 44.68, 46.47, 48.10, 49.54],
+        "Rigging Lighting Technician": [39.56, 41.54, 43.20, 44.71, 46.06],
+        "Key Grip": [51.12, 53.68, 55.83, 57.78, 59.51],
+        "Assistant Key Grip (Best Boy)": [46.52, 48.85, 50.80, 52.58, 54.16],
+        "Grip": [42.56, 44.68, 46.47, 48.10, 49.54],
+        "Key Rigging Grip": [46.52, 48.85, 50.80, 52.58, 54.16],
+        "Second Rigging Grip": [42.56, 44.68, 46.47, 48.10, 49.54],
+        "Rigging Grip": [39.56, 41.54, 43.20, 44.71, 46.06]
+      },
+      "Mid-Tier Network & SVOD": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [48.90, 51.35, 53.40, 55.27, 56.93],
+        "Second Lighting Technician": [44.49, 46.71, 48.58, 50.28, 51.79],
+        "Lighting Technician": [40.71, 42.74, 44.45, 46.01, 47.39],
+        "Head Rigging Lighting Technician": [44.49, 46.71, 48.58, 50.28, 51.79],
+        "Second Rigging Lighting Technician": [40.71, 42.74, 44.45, 46.01, 47.39],
+        "Rigging Lighting Technician": [37.84, 39.73, 41.32, 42.77, 44.05],
+        "Key Grip": [48.90, 51.35, 53.40, 55.27, 56.93],
+        "Assistant Key Grip (Best Boy)": [44.49, 46.71, 48.58, 50.28, 51.79],
+        "Grip": [40.71, 42.74, 44.45, 46.01, 47.39],
+        "Key Rigging Grip": [44.49, 46.71, 48.58, 50.28, 51.79],
+        "Second Rigging Grip": [40.71, 42.74, 44.45, 46.01, 47.39],
+        "Rigging Grip": [37.84, 39.73, 41.32, 42.77, 44.05]
+      },
+      "Entry-Tier Network & SVOD": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [46.68, 49.01, 50.97, 52.75, 54.33],
+        "Second Lighting Technician": [42.48, 44.60, 46.38, 48.00, 49.44],
+        "Lighting Technician": [38.86, 40.80, 42.43, 43.92, 45.24],
+        "Head Rigging Lighting Technician": [42.48, 44.60, 46.38, 48.00, 49.44],
+        "Second Rigging Lighting Technician": [38.86, 40.80, 42.43, 43.92, 45.24],
+        "Rigging Lighting Technician": [36.12, 37.93, 39.45, 40.83, 42.05],
+        "Key Grip": [46.68, 49.01, 50.97, 52.75, 54.33],
+        "Assistant Key Grip (Best Boy)": [42.48, 44.60, 46.38, 48.00, 49.44],
+        "Grip": [38.86, 40.80, 42.43, 43.92, 45.24],
+        "Key Rigging Grip": [42.48, 44.60, 46.38, 48.00, 49.44],
+        "Second Rigging Grip": [38.86, 40.80, 42.43, 43.92, 45.24],
+        "Rigging Grip": [36.12, 37.93, 39.45, 40.83, 42.05]
+      },
+      "New Episodic Series": {
+        "Head Lighting Technician (incl. Lighting Board Operator)": [46.68, 46.96, 49.59, 52.12, 54.34],
+        "Second Lighting Technician": [42.48, 42.73, 45.12, 47.42, 49.44],
+        "Lighting Technician": [38.86, 39.10, 41.29, 43.39, 45.23],
+        "Head Rigging Lighting Technician": [42.48, 42.73, 45.12, 47.42, 49.44],
+        "Second Rigging Lighting Technician": [38.86, 39.10, 41.29, 43.39, 45.23],
+        "Rigging Lighting Technician": [36.12, 36.35, 38.39, 40.34, 42.05],
+        "Key Grip": [46.68, 46.96, 49.59, 52.12, 54.34],
+        "Assistant Key Grip (Best Boy)": [42.48, 42.73, 45.12, 47.42, 49.44],
+        "Grip": [38.86, 39.10, 41.29, 43.39, 45.23],
+        "Key Rigging Grip": [42.48, 42.73, 45.12, 47.42, 49.44],
+        "Second Rigging Grip": [38.86, 39.10, 41.29, 43.39, 45.23],
+        "Rigging Grip": [36.12, 36.35, 38.39, 40.34, 42.05]
+      }
+    };
+
+    const DEFAULT_DASH_SETTINGS = {
+      gross: true, net: true, hourlyGross: true, hourlyNet: true, 
+      actualHrs: true, payableHrs: true, days: true, shows: true, pending: true,
+      weekGross: true, weekNet: true, weekHourlyGross: true, weekHourlyNet: true,
+      weekShows: true, weekPayableHrs: true, weekActualHrs: true
+    };
+
+    const Icons = {
+      Moon: () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>,
+      Plus: () => <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="3"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>,
+      Edit: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+      Trash: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
+      X: () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>,
+      Chevron: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>,
+      Chart: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>,
+      Upload: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+      Search: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>,
+      Video: () => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" x2="7" y1="2" y2="22"/><line x1="17" x2="17" y1="2" y2="22"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="2" x2="7" y1="7" y2="7"/><line x1="2" x2="7" y1="17" y2="17"/><line x1="17" x2="22" y1="17" y2="17"/><line x1="17" x2="22" y1="7" y2="7"/></svg>,
+      Zap: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" stroke="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+      Wipe: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12h20"/><path d="M12 2v20"/><path d="m4.93 4.93 14.14 14.14"/><path d="m4.93 19.07 14.14-14.14"/></svg>,
+      Grid: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+      List: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>,
+      Settings: () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
+      ArrowUp: () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18 15-6-6-6 6"/></svg>,
+      ArrowDown: () => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>,
+      Cloud: () => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2.3-1.7-4.2-3.9-4.5-1-3.1-3.9-5.4-7.1-5.4-3.8 0-7 2.8-7.5 6.5C1.5 11.5 0 13.1 0 15c0 2.2 1.8 4 4 4h13.5z"/></svg>,
+    };
+
+    // --- UTILS ---
+    function getISOWeek(d) {
+      const date = new Date(d.getTime());
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
+      const week1 = new Date(date.getFullYear(), 0, 4);
+      return 1 + Math.round(((date.getTime() - week1.getTime()) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+    }
+
+    function calculateHours(start, end) {
+      if (!start || !end) return 0;
+      const s = new Date(`2000-01-01T${start}`);
+      let e = new Date(`2000-01-01T${end}`);
+      if (e < s) e.setDate(e.getDate() + 1);
+      return (e.getTime() - s.getTime()) / (1000 * 60 * 60);
+    }
+
+    function calculateOT(act, type) {
+      if (!act || type === 'unknown') return act || 0;
+      let earned = act <= 8 ? act : act <= 12 ? 8 + (act - 8) * 1.5 : act <= 14 ? 8 + 6 + (act - 12) * 2 : 8 + 6 + 4 + (act - 14) * 3;
+      const min = type === '8hr' ? 8 : type === '10hr' ? 11 : type === '12hr' ? 14 : 0;
+      return Math.max(earned, min);
+    }
+
+    function formatCurr(n) {
+      const val = typeof n === 'string' ? parseFloat(n) : n;
+      return isNaN(val) ? '$0.00' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+    }
+
+    function getWeekKey(d) {
+      const date = new Date(d + 'T12:00:00');
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(date.setDate(diff)).toISOString().split('T')[0];
+    }
+
+    function getWeekDateRange(wKey) {
+      const start = new Date(wKey + 'T12:00:00');
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      const fmt = { month: 'short', day: 'numeric' };
+      return `${start.toLocaleDateString('en-US', fmt)} - ${end.toLocaleDateString('en-US', fmt)}, ${end.getFullYear()}`;
+    }
+
+    function parseCSVLine(line) {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') inQuotes = !inQuotes;
+        else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else current += char;
+      }
+      result.push(current.trim());
+      return result;
+    }
+
+    async function parsePDF(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        fullText += content.items.map(item => item.str).join(" ") + "\n";
+      }
+      const newProds = [];
+      const blocks = fullText.split(/PRODUCTION TITLE/i).slice(1);
+      blocks.forEach(block => {
+        const nameMatch = block.match(/^\s*:\s*([^\n]+)/);
+        const name = nameMatch ? nameMatch[1].trim() : "Unknown";
+        const companyMatch = block.match(/Production Company\s*:\s*([^\n]+)/i);
+        const company = companyMatch ? companyMatch[1].trim() : "";
+        const datesMatch = block.match(/Production Dates\s*:\s*([^\n]+)/i);
+        const dates = datesMatch ? datesMatch[1].trim() : "";
+        const tierMatch = block.match(/Production Tier\s*:\s*([^\n]+)/i);
+        const tier = tierMatch ? tierMatch[1].trim() : "";
+        const payrollMatch = block.match(/Payroll Email\s*:\s*([^\n]+)/i);
+        const payroll = payrollMatch ? payrollMatch[1].trim() : "";
+        const prodEmailMatch = block.match(/Production Email\s*:\s*([^\n]+)/i);
+        const prodEmail = prodEmailMatch ? prodEmailMatch[1].trim() : "";
+        const crew = {};
+        const crewSection = block.split(/CREW LIST/i)[1];
+        if (crewSection) {
+          const lines = crewSection.split('\n');
+          lines.forEach(line => {
+            const parts = line.split(':');
+            if (parts.length >= 2) {
+              const role = parts[0].trim();
+              const person = parts[1].trim();
+              if (person && person !== 'N/A') crew[role] = person;
+            }
+          });
+        }
+        newProds.push({ id: crypto.randomUUID(), name, company, prodEmail, payroll, crew, dates, tier, status: name.startsWith('WRAPPED') ? 'Wrapped' : 'Active' });
+      });
+      return newProds;
+    }
+
+    function mapTierToStandard(rawTier) {
+      if (!rawTier) return "Standard Television";
+      const t = rawTier.toLowerCase();
+      if (t.includes('rumoured')) return "Rumoured";
+      if (t.includes('premium') || t.includes('hbsvod tier 1')) return "Premium Network & SVOD";
+      if (t.includes('mid-tier') || t.includes('hbsvod tier 2')) return "Mid-Tier Network & SVOD";
+      if (t.includes('entry') || t.includes('hbsvod tier 3')) return "Entry-Tier Network & SVOD";
+      if (t.includes('feature')) return t.includes('low budget') ? "Low Budget Feature Films" : "Feature Films";
+      if (t.includes('new episodic')) return "New Episodic Series";
+      return "Standard Television"; 
+    }
+
+    function getCurrentRate(tier, roleName) {
+      if(!tier || tier === 'Rumoured' || !roleName) return null;
+      const stdTier = mapTierToStandard(tier);
+      const stdRole = MAP_POS[roleName];
+      if(!WAGES[stdTier] || !WAGES[stdTier][stdRole]) return null;
+
+      const now = new Date();
+      let periodIdx = 0;
+      for (let p of WAGE_PERIODS) {
+        if (now >= new Date(p.start) && now <= new Date(p.end)) {
+          periodIdx = p.idx;
+          break;
+        }
+      }
+      return WAGES[stdTier][stdRole][periodIdx];
+    }
+
+    // --- PARSERS ---
+    const parseHTMLText = (htmlString) => {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(htmlString, 'text/html');
+      const newProds = [];
+      const items = doc.querySelectorAll('.item');
+      items.forEach(item => {
+        const titleEl = item.querySelector('.current-production-title a');
+        if (!titleEl) return;
+        const name = titleEl.innerText.trim();
+        let company = '', prodEmail = '', payroll = '', dates = '', tier = '';
+        const tableTop = item.querySelector('.table-headertop-content');
+        if (tableTop) {
+          const tds = tableTop.querySelectorAll('td');
+          if (tds[0]) company = tds[0].innerText.trim();
+          const mailto = tableTop.querySelector('a[href^="mailto:"]');
+          if (mailto && !mailto.innerText.toLowerCase().includes('payroll')) prodEmail = mailto.innerText.trim();
+        }
+        const emailEl = item.querySelector('p[style*="color:green"]');
+        if (emailEl) payroll = emailEl.innerText.replace('Payroll email:', '').trim();
+        const crew = {};
+        const bottomDiv = item.querySelector('.current-production-bottom');
+        if (bottomDiv) {
+          bottomDiv.querySelectorAll('tr').forEach(row => {
+            const cols = row.querySelectorAll('td');
+            if (cols.length >= 2) {
+              const role = cols[0].innerText.trim();
+              const person = cols[1].innerText.trim().replace(/\s+/g, ' ');
+              if (person !== 'N/A' && person !== '' && person !== 'Various') crew[role] = person;
+            }
+          });
+        }
+        const rightDiv = item.querySelector('.current-production-right');
+        if(rightDiv) {
+          const tdElements = rightDiv.querySelectorAll('td');
+          tdElements.forEach(td => {
+            if(td.innerHTML.includes('<time')) {
+              const times = td.querySelectorAll('time');
+              if(times.length >= 2) dates = `${times[0].innerText} to ${times[1].innerText}`;
+            }
+            if(td.innerText.includes('(Daily Seniority)') || td.innerText.includes('Supplemental TV') || td.innerText.includes('Tier')) tier = td.innerText.trim();
+          });
+        }
+        newProds.push({ id: crypto.randomUUID(), name, company, prodEmail, payroll, crew, dates, tier, status: name.startsWith('WRAPPED') ? 'Wrapped' : 'Active' });
+      });
+      return newProds;
+    };
+
+    // --- COMPONENTS ---
+    const WeeklyCard = ({ wKey, wData, expanded, onToggle, onEdit, onDelete, onPay }) => {
+      const weekNum = getISOWeek(new Date(wKey + 'T12:00:00'));
+      const range = getWeekDateRange(wKey);
+      
+      return (
+        <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border dark:border-slate-800 shadow-xl overflow-hidden transition-all duration-300">
+          <div onClick={onToggle} className="p-6 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex flex-col md:flex-row md:items-center gap-4">
+            <div className="flex items-center gap-4">
+              <div className="bg-brand-500/10 p-3 rounded-2xl text-brand-500">
+                <Icons.Chart />
+              </div>
+              <div>
+                <h4 className="font-black text-xl tracking-tighter">Week {weekNum}</h4>
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{range}</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4">
+              <div className="text-left md:text-right flex-1 md:flex-none">
+                <p className="text-[9px] text-slate-400 font-black uppercase">Wk Gross</p>
+                <p className="font-black text-emerald-500">{formatCurr(wData.tg)}</p>
+              </div>
+              <div className="text-left md:text-right flex-1 md:flex-none">
+                <p className="text-[9px] text-slate-400 font-black uppercase">Wk Net</p>
+                <p className="font-black text-brand-500">{formatCurr(wData.tn)}</p>
+              </div>
+              <div className="text-left md:text-right flex-1 md:flex-none">
+                <p className="text-[9px] text-slate-400 font-black uppercase">Actual Hrs</p>
+                <p className="font-black text-slate-700 dark:text-slate-300">{wData.th.toFixed(1)}</p>
+              </div>
+            </div>
+
+            <div className={`transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}>
+              <Icons.Chevron />
+            </div>
+          </div>
+
+          {expanded && (
+            <div className="border-t dark:border-slate-800 p-6 space-y-6 bg-slate-50/50 dark:bg-slate-950/30">
+              {Object.entries(wData.shows).map(([showName, showData]) => (
+                <div key={showName} className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h5 className="font-black text-sm uppercase tracking-widest text-slate-500">{showName || 'Unassigned'}</h5>
+                    <button onClick={() => onPay(wKey, showName, showData.g, showData.n)} className="text-[9px] font-black uppercase bg-emerald-500/10 text-emerald-600 px-3 py-1 rounded-full hover:bg-emerald-500 hover:text-white transition-all">
+                      {showData.g > 0 ? 'Update Pay' : 'Mark Paid'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {showData.entries.sort((a,b) => a.date.localeCompare(b.date)).map(e => (
+                      <div key={e.id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border dark:border-slate-800 shadow-sm group">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <p className="text-xs font-black">{new Date(e.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">{e.position}</p>
+                          </div>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => onEdit(e)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-500"><Icons.Edit/></button>
+                            <button onClick={() => onDelete(e.id)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-red-500"><Icons.Trash/></button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-end">
+                          <div className="text-[10px] text-slate-500 font-medium">
+                            {e.startTime} - {e.endTime} ({e.hours.toFixed(1)}h)
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-black text-emerald-500">{formatCurr(e.gross)}</p>
+                            <p className="text-[9px] font-bold text-slate-400">Net: {formatCurr(e.net)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const ProductionCard = ({ prod, onView }) => (
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-xl group hover:border-brand-500/50 transition-all">
+        <div className="flex justify-between items-start mb-4">
+          <div className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest ${prod.status === 'Wrapped' ? 'bg-slate-100 text-slate-500 dark:bg-slate-800' : 'bg-emerald-500/10 text-emerald-500'}`}>
+            {prod.status}
+          </div>
+          <button onClick={() => onView(prod)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-400 hover:text-brand-500 transition-colors">
+            <Icons.Search />
+          </button>
+        </div>
+        <h3 className="text-xl font-black tracking-tighter mb-1 group-hover:text-brand-500 transition-colors">{prod.name}</h3>
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">{prod.company}</p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="w-1 h-1 rounded-full bg-slate-300"></div>
+            <span>{prod.dates || 'Dates TBD'}</span>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="w-1 h-1 rounded-full bg-slate-300"></div>
+            <span className="truncate">{prod.tier || 'Tier Unknown'}</span>
+          </div>
+        </div>
+      </div>
+    );
+
+    const Modal = ({ isOpen, onClose, title, children }) => {
+      if (!isOpen) return null;
+      return (
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm" onClick={onClose}></div>
+          <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl overflow-hidden animate-slide-up sm:animate-in sm:fade-in sm:zoom-in-95">
+            <div className="px-8 py-6 border-b dark:border-slate-800 flex justify-between items-center">
+              <h3 className="text-xl font-black tracking-tighter">{title}</h3>
+              <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"><Icons.X /></button>
+            </div>
+            <div className="p-8 max-h-[70vh] overflow-y-auto no-scrollbar">
+              {children}
+            </div>
+          </div>
+        </div>
+      );
+    };
+      const dps = [];
+      const actualH = sourceData.actualHours ?? sourceData.actualH ?? sourceData.th ?? 0;
+      const g = sourceData.gross ?? sourceData.g ?? sourceData.tg ?? 0;
+      const n = sourceData.net ?? sourceData.n ?? sourceData.tn ?? 0;
+      const p = sourceData.payableHours ?? sourceData.payableH ?? sourceData.tph ?? 0;
+      const showsC = sourceData.shows instanceof Set ? sourceData.shows.size : (sourceData.sNames?.size ?? sourceData.shows ?? 0);
+      const daysC = sourceData.days instanceof Set ? sourceData.days.size : (sourceData.days ?? 0);
+
+      if (isWeekHeader) {
+        if (dashSettings.weekGross) dps.push({ label: 'Wk Gross', val: formatCurr(g), type: 'emerald' });
+        if (dashSettings.weekNet) dps.push({ label: 'Wk Net', val: formatCurr(n), type: 'brand' });
+        if (dashSettings.weekHourlyGross) dps.push({ label: 'Hourly Grs', val: formatCurr(actualH ? g / actualH : 0), type: 'normal' });
+        if (dashSettings.weekHourlyNet) dps.push({ label: 'Hourly Net', val: formatCurr(actualH ? n / actualH : 0), type: 'normal' });
+        if (dashSettings.weekShows) dps.push({ label: 'Shows', val: showsC, type: 'normal' });
+        if (dashSettings.weekPayableHrs) dps.push({ label: 'Payable Hrs', val: p.toFixed(1), type: 'normal' });
+        if (dashSettings.weekActualHrs) dps.push({ label: 'Actual Hrs', val: actualH.toFixed(1), type: 'normal' });
+
+        return (
+          <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4">
+            {dps.map((dp, i) => (
+              <div key={i} className="text-left md:text-right flex-1 md:flex-none">
+                <p className="text-[9px] text-slate-400 font-black uppercase">{dp.label}</p>
+                <p className={`font-black ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      if (dashSettings.gross) dps.push({ label: 'Total Gross', val: formatCurr(g), type: 'emerald' });
+      if (dashSettings.net) dps.push({ label: 'Total Net', val: formatCurr(n), type: 'brand' });
+      if (dashSettings.hourlyGross) dps.push({ label: 'Hourly Gross', val: formatCurr(actualH ? g / actualH : 0), type: 'emerald-light' });
+      if (dashSettings.hourlyNet) dps.push({ label: 'Hourly Net', val: formatCurr(actualH ? n / actualH : 0), type: 'brand-light' });
+      if (dashSettings.actualHrs) dps.push({ label: 'Actual Hrs', val: actualH.toFixed(1), type: 'normal' });
+      if (dashSettings.payableHrs) dps.push({ label: 'Payable Hrs', val: p.toFixed(1), type: 'normal' });
+      if (dashSettings.days) dps.push({ label: 'Days Worked', val: daysC, type: 'normal' });
+      if (dashSettings.shows) dps.push({ label: 'Shows Worked', val: showsC, type: 'normal' });
+
+      return (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {dps.map((dp, i) => (
+            <div key={i} className={`bg-white dark:bg-slate-900 p-4 rounded-3xl border dark:border-slate-800 shadow-sm flex flex-col justify-between ${dp.type.includes('light') ? 'bg-slate-50 dark:bg-slate-950/50' : ''}`}>
+              <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest">{dp.label}</p>
+              <p className={`text-xl font-black ${dp.type.includes('emerald') ? 'text-emerald-500' : dp.type.includes('brand') ? 'text-brand-500' : ''}`}>{dp.val}</p>
+            </div>
+          ))}
+          {dashSettings.pending && (sourceData.pending || 0) > 0 && (
+            <div className="bg-orange-500/10 border-orange-500/30 p-4 rounded-3xl border shadow-sm flex flex-col justify-between">
+              <p className="text-[10px] uppercase font-black tracking-widest text-orange-600 dark:text-orange-500">Pending</p>
+              <p className="text-xl font-black text-orange-600 dark:text-orange-500">{sourceData.pending} chq.</p>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // --- MAIN APP ---
+    const App = () => {
+      // App State
+      const [entries, setEntries] = useState([]);
+      const [productions, setProductions] = useState([]);
+      const [theme, setTheme] = useState('dark');
+      const [mainMode, setMainMode] = useState('timesheets');
+      const [prodTab, setProdTab] = useState('dashboard');
+      
+      // UI State
+      const [isMobileFormOpen, setIsMobileFormOpen] = useState(false);
+      const [expandedWeeks, setExpandedWeeks] = useState({});
+      const [payModal, setPayModal] = useState({ isOpen: false, weekKey: '', showName: '', gross: '', net: '' });
+      const [viewingProd, setViewingProd] = useState(null);
+      const [wipeModal, setWipeModal] = useState(null); 
+      
+      // Productions Tab States
+      const [prodSearchQuery, setProdSearchQuery] = useState('');
+      const [prodFilter, setProdFilter] = useState('All'); 
+      const [prodSort, setProdSort] = useState({ key: 'startDate', dir: 'asc' }); 
+      const [prodViewMode, setProdViewMode] = useState('card'); 
+      const [isProdSettingsOpen, setIsProdSettingsOpen] = useState(false);
+      const [prodSettings, setProdSettings] = useState({ role1: 'Gaffer', role2: 'Rigging Gaffer', showRates: true });
+      
+      // Log Tab States
+      const [globalFilter, setGlobalFilter] = useState('All'); 
+      const [formData, setFormData] = useState({ id: 0, date: new Date().toISOString().split('T')[0], show: '', position: 'Rigging LX', startTime: '07:00', endTime: '19:00', notes: '', gross: '', net: '', minPayType: '12hr', saveDefault: true });
+      const [isEditingEntry, setIsEditingEntry] = useState(false);
+      const [scratchpadText, setScratchpadText] = useState('');
+      const [statusMsg, setStatusMsg] = useState('');
+
+      const [dashSettings, setDashSettings] = useState(DEFAULT_DASH_SETTINGS);
+      const [isDashSettingsOpen, setIsDashSettingsOpen] = useState(false);
+      
+      // Cloud Sync State
+      const [fbConfig, setFbConfig] = useState(null);
+      const [syncId, setSyncId] = useState('');
+      const [syncStatus, setSyncStatus] = useState('disconnected'); // disconnected, connecting, connected, error
+      const [lastSync, setLastSync] = useState(null);
+      const [isSyncSettingsOpen, setIsSyncSettingsOpen] = useState(false);
+
+      // --- INITIALIZATION ---
+      useEffect(() => {
+        const savedProdSettings = localStorage.getItem('pt_prod_settings');
+        if (savedProdSettings) setProdSettings(JSON.parse(savedProdSettings));
+        
+        const savedDashSettings = localStorage.getItem('pt_dash_settings');
+        if (savedDashSettings) setDashSettings({...DEFAULT_DASH_SETTINGS, ...JSON.parse(savedDashSettings)});
+
+        const savedFbConfig = localStorage.getItem('pt_fb_config');
+        if (savedFbConfig) setFbConfig(JSON.parse(savedFbConfig));
+
+        const savedSyncId = localStorage.getItem('pt_sync_id');
+        if (savedSyncId) setSyncId(savedSyncId);
+
+        const savedTimes = JSON.parse(localStorage.getItem('pt_last_times') || '{"start":"07:00", "end":"19:00"}');
+        setFormData(prev => ({...prev, startTime: savedTimes.start, endTime: savedTimes.end}));
+
+        const e = localStorage.getItem('pt_entries'); if (e) setEntries(JSON.parse(e));
+        const p = localStorage.getItem('pt_prods'); if (p) setProductions(JSON.parse(p));
+      }, []);
+
+      // Firebase Sync Logic
+      const fbAppRef = useRef(null);
+      const fbDbRef = useRef(null);
+
+      useEffect(() => {
+        if (!fbConfig || !syncId || !window.FB) return;
+
+        let unsubscribe = null;
+        const initSync = async () => {
+          try {
+            setSyncStatus('connecting');
+            if (!fbAppRef.current) {
+              fbAppRef.current = window.FB.initializeApp(fbConfig);
+              fbDbRef.current = window.FB.getFirestore(fbAppRef.current);
+            }
+            const auth = window.FB.getAuth(fbAppRef.current);
+            const db = fbDbRef.current;
+
+            await window.FB.signInAnonymously(auth);
+            
+            // Listen for remote changes
+            unsubscribe = window.FB.onSnapshot(window.FB.doc(db, "users", syncId), (doc) => {
+              if (doc.exists()) {
+                const data = doc.data();
+                // Only update if remote is newer or local is empty
+                if (data.entries) setEntries(data.entries);
+                if (data.productions) setProductions(data.productions);
+                setLastSync(new Date());
+                setSyncStatus('connected');
+              } else {
+                setSyncStatus('connected');
+              }
+            }, (err) => {
+              console.error(err);
+              setSyncStatus('error');
+            });
+          } catch (err) {
+            console.error(err);
+            setSyncStatus('error');
+          }
+        };
+
+        initSync();
+        return () => unsubscribe && unsubscribe();
+      }, [fbConfig, syncId]);
+
+      // Push local changes to cloud
+      useEffect(() => {
+        if (syncStatus !== 'connected' || !fbDbRef.current || !syncId || !window.FB) return;
+        
+        const pushData = async () => {
+          try {
+            const db = fbDbRef.current;
+            await window.FB.setDoc(window.FB.doc(db, "users", syncId), {
+              entries,
+              productions,
+              updatedAt: new Date()
+            }, { merge: true });
+            setLastSync(new Date());
+          } catch (err) {
+            console.error("Push failed:", err);
+          }
+        };
+
+        const timeout = setTimeout(pushData, 2000); // Debounce push
+        return () => clearTimeout(timeout);
+      }, [entries, productions, syncStatus, syncId]);
+
+      useEffect(() => {
+        localStorage.setItem('pt_entries', JSON.stringify(entries));
+        localStorage.setItem('pt_prods', JSON.stringify(productions));
+      }, [entries, productions]);
+
+      useEffect(() => {
+        if (theme === 'dark') document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+      }, [theme]);
+
+      function showStatus(msg) {
+          setStatusMsg(msg);
+          setTimeout(() => setStatusMsg(''), 3000);
+      }
+
+      const autoCalculateGross = () => {
+          if (!formData.show || !formData.position || !formData.date) {
+              showStatus("Need Show, Date, and Position to calc.");
+              return;
+          }
+          const prod = productions.find(p => p.name === formData.show);
+          if (!prod) { showStatus("Show not in database."); return; }
+          const rate = getCurrentRate(prod.tier, formData.position);
+          if (!rate) { showStatus(`No rate found.`); return; }
+          const h = calculateHours(formData.startTime, formData.endTime);
+          const ph = calculateOT(h, formData.minPayType);
+          setFormData(prev => ({...prev, gross: (ph * rate).toFixed(2) }));
+          showStatus(`Auto-calculated at $${rate}/hr`);
+      };
+
+      const handleTsSubmit = (e) => {
+        e.preventDefault();
+        const h = calculateHours(formData.startTime, formData.endTime);
+        const ph = calculateOT(h, formData.minPayType);
+        const ent = { ...formData, id: isEditingEntry ? formData.id : Date.now(), hours: h, payableHours: ph, gross: formData.gross === '' ? '' : parseFloat(formData.gross), net: formData.net === '' ? '' : parseFloat(formData.net) };
+        if (formData.saveDefault) {
+            const defaults = JSON.parse(localStorage.getItem('pt_defaults') || '{}');
+            defaults[formData.show] = { position: formData.position, minPayType: formData.minPayType };
+            localStorage.setItem('pt_defaults', JSON.stringify(defaults));
+        }
+        localStorage.setItem('pt_last_times', JSON.stringify({ start: formData.startTime, end: formData.endTime }));
+        setEntries(prev => isEditingEntry ? prev.map(x => x.id === ent.id ? ent : x) : [...prev, ent]);
+        setIsEditingEntry(false); setIsMobileFormOpen(false);
+        setFormData(prev => ({ ...prev, id: 0, gross: '', net: '', notes: '' }));
+        showStatus('Entry Saved!');
+      };
+
+      const handleTsDelete = (id) => {
+          setEntries(prev => prev.filter(e => e.id !== id));
+      };
+
+      const handleHTMLImport = () => {
+          if (!scratchpadText) return;
+          const parsed = parseHTMLText(scratchpadText);
+          setProductions(prev => {
+            const existingNames = new Set(prev.map(p => p.name));
+            const uniqueNew = parsed.filter(p => !existingNames.has(p.name));
+            return [...prev, ...uniqueNew];
+          });
+          setScratchpadText('');
+          showStatus(`Successfully parsed ${parsed.length} productions!`);
+          setProdTab('dashboard');
+      };
+
+      const handlePDFImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          showStatus("Parsing PDF...");
+          const parsed = await parsePDF(file);
+          setProductions(prev => {
+            const existingNames = new Set(prev.map(p => p.name));
+            const uniqueNew = parsed.filter(p => !existingNames.has(p.name));
+            return [...prev, ...uniqueNew];
+          });
+          showStatus(`Imported ${parsed.length} productions!`);
+          setProdTab('dashboard');
+        } catch (err) {
+          console.error(err);
+          showStatus("Error parsing PDF.");
+        }
+      };
+
+      const exportCSV = () => {
+        if (entries.length === 0) return;
+        const headers = ["Date", "Show", "Position", "Start", "End", "Hours", "PayableHours", "Gross", "Net", "Notes"];
+        const rows = entries.map(e => [
+          e.date, e.show, e.position, e.startTime, e.endTime, e.hours, e.payableHours, e.gross, e.net, `"${e.notes || ''}"`
+        ]);
+        const csvContent = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `payroll_export_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+      };
+
+      const importCSV = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const text = evt.target.result;
+          const lines = text.split('\n').filter(l => l.trim());
+          const newEntries = lines.slice(1).map(line => {
+            const cols = parseCSVLine(line);
+            return {
+              id: Date.now() + Math.random(),
+              date: cols[0], show: cols[1], position: cols[2], startTime: cols[3], endTime: cols[4],
+              hours: parseFloat(cols[5]), payableHours: parseFloat(cols[6]),
+              gross: parseFloat(cols[7]), net: parseFloat(cols[8]), notes: cols[9]?.replace(/"/g, '') || ''
+            };
+          });
+          setEntries(prev => [...prev, ...newEntries]);
+          showStatus(`Imported ${newEntries.length} entries!`);
+        };
+        reader.readAsText(file);
+      };
+
+      const handleWipeDatabase = (type) => {
+          if(type === 'productions') setProductions([]);
+          if(type === 'entries') setEntries([]);
+          setWipeModal(null);
+          showStatus(`${type === 'productions' ? 'Shows' : 'Logs'} cleared.`);
+      };
+
+      const allShowsList = useMemo(() => [...new Set(productions.map(p => p.name).filter(Boolean))].sort(), [productions]);
+      
+      const filteredEntries = useMemo(() => {
+          const now = new Date();
+          return entries.filter(e => {
+              const d = new Date(e.date + 'T12:00:00');
+              if (globalFilter === 'All') return true;
+              if (globalFilter === 'Year') return d.getFullYear() === now.getFullYear();
+              if (globalFilter === 'Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+              if (globalFilter === 'Week') return getISOWeek(d) === getISOWeek(now) && d.getFullYear() === now.getFullYear();
+              return true;
+          });
+      }, [entries, globalFilter]);
+
+      const stats = useMemo(() => {
+          let g = 0, n = 0, actualH = 0, payableH = 0;
+          const weekShowCombos = {};
+          const daysSet = new Set();
+          const showsSet = new Set();
+          filteredEntries.forEach(e => {
+              g += parseFloat(e.gross) || 0;
+              n += parseFloat(e.net) || 0;
+              actualH += e.hours || 0; 
+              payableH += e.payableHours || 0;
+              daysSet.add(e.date);
+              if (e.show) showsSet.add(e.show);
+              const wsKey = `${getWeekKey(e.date)}_${e.show}`;
+              if (!weekShowCombos[wsKey]) weekShowCombos[wsKey] = { hasPay: false };
+              if (e.gross || e.net) weekShowCombos[wsKey].hasPay = true;
+          });
+          const pendingChecks = Object.values(weekShowCombos).filter(c => !c.hasPay).length;
+          return { gross: g, net: n, actualHours: actualH, payableHours: payableH, days: daysSet.size, shows: showsSet.size, pending: pendingChecks };
+      }, [filteredEntries]);
+
+      const weeklyGroups = useMemo(() => {
+          const groups = {};
+          filteredEntries.forEach(e => {
+              const wKey = getWeekKey(e.date);
+              if (!groups[wKey]) groups[wKey] = { shows: {}, th: 0, tph: 0, tg: 0, tn: 0, days: new Set(), sNames: new Set() };
+              if (!groups[wKey].shows[e.show]) groups[wKey].shows[e.show] = { entries: [], g: 0, n: 0, actualH: 0, payableH: 0 };
+              groups[wKey].shows[e.show].entries.push(e);
+              groups[wKey].shows[e.show].g += parseFloat(e.gross) || 0;
+              groups[wKey].shows[e.show].n += parseFloat(e.net) || 0;
+              groups[wKey].shows[e.show].actualH += e.hours || 0;
+              groups[wKey].shows[e.show].payableH += e.payableHours || 0;
+              groups[wKey].th += e.hours || 0;
+              groups[wKey].tph += e.payableHours || 0;
+              groups[wKey].tg += parseFloat(e.gross) || 0;
+              groups[wKey].tn += parseFloat(e.net) || 0;
+              groups[wKey].days.add(e.date);
+              if(e.show) groups[wKey].sNames.add(e.show);
+          });
+          return Object.entries(groups).sort((a,b) => b[0].localeCompare(a[0]));
+      }, [filteredEntries]);
+
+      const sortedProductions = useMemo(() => {
+          return productions
+              .filter(p => prodFilter === 'All' || p.status === prodFilter)
+              .filter(p => p.name.toLowerCase().includes(prodSearchQuery.toLowerCase()));
+      }, [productions, prodFilter, prodSearchQuery]);
+
+      return (
+        <div className="w-full min-h-screen pb-24 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 transition-colors duration-200">
+          {statusMsg && (
+              <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] bg-emerald-500 text-white px-6 py-3 rounded-full font-black tracking-widest text-[10px] uppercase shadow-2xl animate-in fade-in slide-in-from-top-4">
+                  {statusMsg}
+              </div>
+          )}
+
+          <nav className="border-b dark:border-slate-800 border-slate-200 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <div className="bg-brand-600 p-2 rounded-xl text-white shadow-lg"><Icons.Video /></div>
+                <h1 className="text-xl font-black tracking-tighter uppercase hidden sm:block italic">Work<span className="text-brand-500">Hub</span></h1>
+              </div>
+              <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800 shrink-0">
+                <button onClick={() => setMainMode('timesheets')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'timesheets' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Log</button>
+                <button onClick={() => setMainMode('productions')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'productions' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Shows</button>
+                <button onClick={() => setMainMode('reports')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'reports' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Reports</button>
+              </div>
+              <div className="flex gap-2 items-center">
+                <button 
+                  onClick={() => setIsSyncSettingsOpen(true)} 
+                  className={`p-2 rounded-xl transition-all ${syncStatus === 'connected' ? 'text-emerald-500 bg-emerald-500/10' : syncStatus === 'error' ? 'text-red-500 bg-red-500/10' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  title={syncStatus === 'connected' ? `Synced at ${lastSync?.toLocaleTimeString()}` : 'Cloud Sync'}
+                >
+                  <Icons.Cloud />
+                </button>
+                <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all"><Icons.Moon/></button>
+              </div>
+            </div>
+          </nav>
+
+          <main className="max-w-7xl mx-auto px-4 py-8">
+            {mainMode === 'timesheets' && (
+              <div className="space-y-8">
+                <div className="flex justify-between items-center">
+                  <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800">
+                    {['All', 'Week', 'Month', 'Year'].map(f => (
+                      <button key={f} onClick={() => setGlobalFilter(f)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${globalFilter === f ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>{f}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setIsDashSettingsOpen(true)} className="p-3 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl text-slate-400 hover:text-brand-500 shadow-sm transition-all"><Icons.Settings /></button>
+                    <button onClick={() => setIsMobileFormOpen(true)} className="lg:hidden p-3 bg-brand-600 text-white rounded-2xl shadow-lg"><Icons.Plus /></button>
+                  </div>
+                </div>
+
+                <StatGrid sourceData={stats} dashSettings={dashSettings} />
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  <div className={`lg:col-span-4 ${isMobileFormOpen ? 'fixed inset-0 z-50 bg-slate-50 dark:bg-slate-950 p-6 overflow-y-auto' : 'hidden lg:block'}`}>
+                    {isMobileFormOpen && <button onClick={() => setIsMobileFormOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-200 dark:bg-slate-800 rounded-xl"><Icons.X /></button>}
+                    <form onSubmit={handleTsSubmit} className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 space-y-6 shadow-xl sticky top-24">
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-black text-2xl tracking-tighter">{isEditingEntry ? 'Edit Entry' : 'New Work Log'}</h3>
+                        {!isEditingEntry && <button type="button" onClick={autoCalculateGross} className="p-2 bg-brand-500/10 text-brand-500 rounded-xl hover:bg-brand-500 hover:text-white transition-all"><Icons.Zap /></button>}
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Show Name</label>
+                          <input list="shows" required value={formData.show} onChange={e => setFormData({...formData, show: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold focus:ring-2 ring-brand-500 outline-none transition-all" placeholder="Select or type..."/>
+                          <datalist id="shows">{allShowsList.map(s => <option key={s} value={s}/>)}</datalist>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Date</label>
+                            <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"/>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Position</label>
+                            <select value={formData.position} onChange={e => setFormData({...formData, position: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold">
+                              {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Start Time</label>
+                            <input type="time" required value={formData.startTime} onChange={e => setFormData({...formData, startTime: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"/>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">End Time</label>
+                            <input type="time" required value={formData.endTime} onChange={e => setFormData({...formData, endTime: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"/>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Gross Pay ($)</label>
+                            <input type="number" step="0.01" value={formData.gross} onChange={e => setFormData({...formData, gross: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold" placeholder="0.00"/>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Net Pay ($)</label>
+                            <input type="number" step="0.01" value={formData.net} onChange={e => setFormData({...formData, net: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold" placeholder="0.00"/>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Min Pay Type</label>
+                          <div className="flex gap-2">
+                            {['8hr', '10hr', '12hr', 'unknown'].map(t => (
+                              <button key={t} type="button" onClick={() => setFormData({...formData, minPayType: t})} className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase border transition-all ${formData.minPayType === t ? 'bg-brand-600 border-brand-600 text-white shadow-md' : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-400'}`}>{t}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Notes</label>
+                          <textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold h-20 resize-none" placeholder="Optional notes..."/>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3">
+                        {isEditingEntry && <button type="button" onClick={() => { setIsEditingEntry(false); setFormData({...formData, id: 0, gross: '', net: '', notes: '' }); }} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black rounded-2xl uppercase text-[10px]">Cancel</button>}
+                        <button type="submit" className="flex-[2] py-4 bg-brand-600 text-white font-black rounded-2xl uppercase text-[10px] shadow-lg shadow-brand-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all">{isEditingEntry ? 'Update Entry' : 'Save Entry'}</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div className="lg:col-span-8 space-y-6">
+                    {weeklyGroups.length === 0 ? (
+                      <div className="bg-white dark:bg-slate-900 p-12 rounded-[2.5rem] border dark:border-slate-800 text-center space-y-4">
+                        <div className="bg-slate-100 dark:bg-slate-800 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto text-slate-400"><Icons.Chart /></div>
+                        <h4 className="font-black text-xl">No logs found</h4>
+                        <p className="text-sm text-slate-500">Start by adding a new work log entry on the left.</p>
+                      </div>
+                    ) : (
+                      weeklyGroups.map(([wKey, wData]) => (
+                        <WeeklyCard 
+                          key={wKey} 
+                          wKey={wKey} 
+                          wData={wData} 
+                          expanded={expandedWeeks[wKey]} 
+                          onToggle={() => setExpandedWeeks(prev => ({...prev, [wKey]: !prev[wKey]}))}
+                          onEdit={(e) => { setFormData(e); setIsEditingEntry(true); setIsMobileFormOpen(true); }}
+                          onDelete={handleTsDelete}
+                          onPay={(wk, sn, g, n) => setPayModal({ isOpen: true, weekKey: wk, showName: sn, gross: g.toString(), net: n.toString() })}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {mainMode === 'productions' && (
+              <div className="space-y-8">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-2xl border dark:border-slate-800">
+                    {['dashboard', 'import'].map(t => (
+                      <button key={t} onClick={() => setProdTab(t)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${prodTab === t ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>{t}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 w-full md:w-auto">
+                    <div className="relative flex-1 md:flex-none">
+                      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"><Icons.Search /></div>
+                      <input type="text" value={prodSearchQuery} onChange={e => setProdSearchQuery(e.target.value)} placeholder="Search shows..." className="w-full md:w-64 bg-white dark:bg-slate-900 border dark:border-slate-800 pl-10 pr-4 py-3 rounded-2xl text-xs font-bold shadow-sm"/>
+                    </div>
+                    <button onClick={() => setIsProdSettingsOpen(true)} className="p-3 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl text-slate-400 hover:text-brand-500 shadow-sm transition-all"><Icons.Settings /></button>
+                  </div>
+                </div>
+
+                {prodTab === 'dashboard' && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <div className="flex gap-2">
+                        {['All', 'Active', 'Wrapped'].map(f => (
+                          <button key={f} onClick={() => setProdFilter(f)} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${prodFilter === f ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/20' : 'bg-white dark:bg-slate-900 border dark:border-slate-800 text-slate-400'}`}>{f}</button>
+                        ))}
+                      </div>
+                      <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border dark:border-slate-800">
+                        <button onClick={() => setProdViewMode('card')} className={`p-2 rounded-lg transition-all ${prodViewMode === 'card' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-sm' : 'text-slate-400'}`}><Icons.Grid /></button>
+                        <button onClick={() => setProdViewMode('list')} className={`p-2 rounded-lg transition-all ${prodViewMode === 'list' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-sm' : 'text-slate-400'}`}><Icons.List /></button>
+                      </div>
+                    </div>
+
+                    {sortedProductions.length === 0 ? (
+                      <div className="bg-white dark:bg-slate-900 p-12 rounded-[2.5rem] border dark:border-slate-800 text-center space-y-4">
+                        <div className="bg-slate-100 dark:bg-slate-800 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto text-slate-400"><Icons.Video /></div>
+                        <h4 className="font-black text-xl">No shows found</h4>
+                        <p className="text-sm text-slate-500">Import productions from the "Import" tab to get started.</p>
+                      </div>
+                    ) : prodViewMode === 'card' ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {sortedProductions.map(p => <ProductionCard key={p.id} prod={p} onView={setViewingProd} />)}
+                      </div>
+                    ) : (
+                      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] border dark:border-slate-800 overflow-hidden shadow-xl">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-slate-50 dark:bg-slate-800/50 border-b dark:border-slate-800">
+                            <tr>
+                              <th className="px-6 py-4 font-black uppercase tracking-widest text-[10px] text-slate-400">Show Name</th>
+                              <th className="px-6 py-4 font-black uppercase tracking-widest text-[10px] text-slate-400">Company</th>
+                              <th className="px-6 py-4 font-black uppercase tracking-widest text-[10px] text-slate-400">Status</th>
+                              <th className="px-6 py-4 font-black uppercase tracking-widest text-[10px] text-slate-400 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y dark:divide-slate-800">
+                            {sortedProductions.map(p => (
+                              <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                <td className="px-6 py-4 font-bold">{p.name}</td>
+                                <td className="px-6 py-4 text-slate-500">{p.company}</td>
+                                <td className="px-6 py-4">
+                                  <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${p.status === 'Wrapped' ? 'bg-slate-100 text-slate-500 dark:bg-slate-800' : 'bg-emerald-500/10 text-emerald-500'}`}>{p.status}</span>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <button onClick={() => setViewingProd(p)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-500 transition-colors"><Icons.Search /></button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {prodTab === 'import' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-brand-500/10 p-3 rounded-2xl text-brand-500"><Icons.Upload /></div>
+                        <h4 className="font-black text-xl tracking-tighter">Import from HTML</h4>
+                      </div>
+                      <p className="text-sm text-slate-500">Paste the HTML source from the production list page to automatically import all shows and crew data.</p>
+                      <textarea value={scratchpadText} onChange={e => setScratchpadText(e.target.value)} placeholder="Paste HTML source here..." className="w-full h-48 bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-3xl text-xs font-mono focus:ring-2 ring-brand-500 outline-none transition-all no-scrollbar"/>
+                      <button onClick={handleHTMLImport} className="w-full py-4 bg-brand-600 text-white font-black rounded-2xl uppercase text-[10px] shadow-lg shadow-brand-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all">Process HTML Content</button>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="bg-emerald-500/10 p-3 rounded-2xl text-emerald-500"><Icons.Video /></div>
+                        <h4 className="font-black text-xl tracking-tighter">Import from PDF</h4>
+                      </div>
+                      <p className="text-sm text-slate-500">Select a production list PDF file to parse data offline using PDF.js.</p>
+                      <div className="border-2 border-dashed dark:border-slate-800 rounded-3xl p-12 text-center space-y-4 hover:border-brand-500 transition-colors cursor-pointer relative">
+                        <input type="file" accept=".pdf" onChange={handlePDFImport} className="absolute inset-0 opacity-0 cursor-pointer"/>
+                        <div className="bg-slate-100 dark:bg-slate-800 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto text-slate-400"><Icons.Upload /></div>
+                        <p className="text-sm font-bold">Click or drag PDF here</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Supports IATSE 873 PDF Format</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {mainMode === 'reports' && (
+              <div className="space-y-8">
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] border dark:border-slate-800 shadow-xl space-y-6">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-brand-500/10 p-3 rounded-2xl text-brand-500"><Icons.Chart /></div>
+                    <h4 className="font-black text-xl tracking-tighter">Data Management</h4>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button onClick={exportCSV} className="flex items-center justify-center gap-3 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black rounded-2xl uppercase text-[10px] hover:bg-brand-600 hover:text-white transition-all">
+                      <Icons.Upload /> Export to CSV
+                    </button>
+                    <label className="flex items-center justify-center gap-3 py-4 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-black rounded-2xl uppercase text-[10px] hover:bg-brand-600 hover:text-white transition-all cursor-pointer">
+                      <Icons.Upload /> Import from CSV
+                      <input type="file" accept=".csv" onChange={importCSV} className="hidden"/>
+                    </label>
+                  </div>
+                  <div className="pt-6 border-t dark:border-slate-800">
+                    <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">Danger Zone</h5>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <button onClick={() => setWipeModal('entries')} className="flex items-center justify-center gap-3 py-4 bg-red-500/10 text-red-500 font-black rounded-2xl uppercase text-[10px] hover:bg-red-500 hover:text-white transition-all">
+                        <Icons.Trash /> Wipe Work Logs
+                      </button>
+                      <button onClick={() => setWipeModal('productions')} className="flex items-center justify-center gap-3 py-4 bg-red-500/10 text-red-500 font-black rounded-2xl uppercase text-[10px] hover:bg-red-500 hover:text-white transition-all">
+                        <Icons.Trash /> Wipe Shows
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* MODALS */}
+          <Modal isOpen={payModal.isOpen} onClose={() => setPayModal({...payModal, isOpen: false})} title="Mark as Paid">
+            <div className="space-y-6">
+              <p className="text-sm text-slate-500">Enter the actual amounts from your pay stub for <span className="font-bold text-slate-800 dark:text-slate-200">{payModal.showName}</span>.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Gross Amount</label>
+                  <input type="number" step="0.01" value={payModal.gross} onChange={e => setPayModal({...payModal, gross: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"/>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Net Amount</label>
+                  <input type="number" step="0.01" value={payModal.net} onChange={e => setPayModal({...payModal, net: e.target.value})} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"/>
+                </div>
+              </div>
+              <button onClick={() => {
+                const g = parseFloat(payModal.gross) || 0;
+                const n = parseFloat(payModal.net) || 0;
+                setEntries(prev => prev.map(e => (getWeekKey(e.date) === payModal.weekKey && e.show === payModal.showName) ? { ...e, gross: g / prev.filter(x => getWeekKey(x.date) === payModal.weekKey && x.show === payModal.showName).length, net: n / prev.filter(x => getWeekKey(x.date) === payModal.weekKey && x.show === payModal.showName).length } : e));
+                setPayModal({...payModal, isOpen: false});
+                showStatus("Pay updated!");
+              }} className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl uppercase text-[10px] shadow-lg shadow-emerald-500/20">Save Pay Info</button>
+            </div>
+          </Modal>
+
+          <Modal isOpen={isSyncSettingsOpen} onClose={() => setIsSyncSettingsOpen(false)} title="Cloud Sync Settings">
+            <div className="space-y-6">
+              <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border dark:border-slate-800 space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className={`w-3 h-3 rounded-full ${syncStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : syncStatus === 'connecting' ? 'bg-brand-500 animate-pulse' : syncStatus === 'error' ? 'bg-red-500' : 'bg-slate-300'}`}></div>
+                  <p className="text-xs font-black uppercase tracking-widest text-slate-500">
+                    Status: <span className={syncStatus === 'connected' ? 'text-emerald-500' : syncStatus === 'error' ? 'text-red-500' : ''}>{syncStatus}</span>
+                  </p>
+                </div>
+                {lastSync && <p className="text-[10px] text-slate-400 font-bold uppercase">Last Sync: {lastSync.toLocaleString()}</p>}
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Sync ID (Secret Key)</label>
+                  <input 
+                    type="password" 
+                    value={syncId} 
+                    onChange={e => {
+                      setSyncId(e.target.value);
+                      localStorage.setItem('pt_sync_id', e.target.value);
+                    }} 
+                    className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-sm font-bold"
+                    placeholder="Enter a unique private key..."
+                  />
+                  <p className="text-[9px] text-slate-400 ml-2">Use the same key on all your devices to sync data.</p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Firebase Config (JSON)</label>
+                  <textarea 
+                    value={fbConfig ? JSON.stringify(fbConfig, null, 2) : ''} 
+                    onChange={e => {
+                      try {
+                        const parsed = JSON.parse(e.target.value);
+                        setFbConfig(parsed);
+                        localStorage.setItem('pt_fb_config', JSON.stringify(parsed));
+                      } catch (err) {}
+                    }} 
+                    className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-2xl text-[10px] font-mono h-32 resize-none"
+                    placeholder='{"apiKey": "...", "projectId": "...", ...}'
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button 
+                  onClick={async () => {
+                    if (syncStatus !== 'connected' || !fbDbRef.current || !syncId) return;
+                    try {
+                      setSyncStatus('connecting');
+                      const db = fbDbRef.current;
+                      await window.FB.setDoc(window.FB.doc(db, "users", syncId), {
+                        entries,
+                        productions,
+                        updatedAt: new Date()
+                      }, { merge: true });
+                      setLastSync(new Date());
+                      setSyncStatus('connected');
+                      showStatus("Cloud updated!");
+                    } catch (err) {
+                      setSyncStatus('error');
+                      showStatus("Sync failed!");
+                    }
+                  }}
+                  className="flex-1 py-4 bg-brand-600 text-white font-black rounded-2xl uppercase text-[10px] shadow-lg shadow-brand-500/20"
+                >
+                  Sync Now
+                </button>
+                <button 
+                  onClick={() => {
+                    setFbConfig(null);
+                    setSyncId('');
+                    localStorage.removeItem('pt_fb_config');
+                    localStorage.removeItem('pt_sync_id');
+                    setSyncStatus('disconnected');
+                    showStatus("Cloud disconnected");
+                  }}
+                  className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black rounded-2xl uppercase text-[10px]"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              <div className="bg-brand-500/5 p-6 rounded-3xl border border-brand-500/10 space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-widest text-brand-600">How to Setup:</h4>
+                <ol className="text-[10px] text-slate-500 space-y-2 list-decimal ml-4">
+                  <li>Create a project at <a href="https://console.firebase.google.com" target="_blank" className="text-brand-500 underline">Firebase Console</a></li>
+                  <li>Enable <b>Firestore Database</b> and <b>Anonymous Auth</b></li>
+                  <li>Add a "Web App" to get your <b>Firebase Config</b></li>
+                  <li>Paste the config JSON above and set a <b>Sync ID</b></li>
+                </ol>
+              </div>
+            </div>
+          </Modal>
+
+          <Modal isOpen={isDashSettingsOpen} onClose={() => setIsDashSettingsOpen(false)} title="Dashboard Settings">
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.keys(DEFAULT_DASH_SETTINGS).map(key => (
+                  <label key={key} className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border dark:border-slate-800 cursor-pointer hover:border-brand-500 transition-all">
+                    <input type="checkbox" checked={dashSettings[key]} onChange={e => {
+                      const next = {...dashSettings, [key]: e.target.checked};
+                      setDashSettings(next);
+                      localStorage.setItem('pt_dash_settings', JSON.stringify(next));
+                    }} className="w-5 h-5 rounded-lg border-slate-300 text-brand-600 focus:ring-brand-500"/>
+                    <span className="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">{key.replace(/([A-Z])/g, ' $1')}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </Modal>
+
+          <Modal isOpen={!!viewingProd} onClose={() => setViewingProd(null)} title="Show Details">
+            {viewingProd && (
+              <div className="space-y-6">
+                <div className="bg-slate-50 dark:bg-slate-950 p-6 rounded-3xl border dark:border-slate-800 space-y-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Company</p>
+                    <p className="font-bold">{viewingProd.company}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dates</p>
+                    <p className="font-bold">{viewingProd.dates}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tier</p>
+                    <p className="font-bold">{viewingProd.tier}</p>
+                  </div>
+                  {viewingProd.prodEmail && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Production Email</p>
+                      <a href={`mailto:${viewingProd.prodEmail}`} className="font-bold text-brand-500 hover:underline">{viewingProd.prodEmail}</a>
+                    </div>
+                  )}
+                  {viewingProd.payroll && (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Payroll Email</p>
+                      <a href={`mailto:${viewingProd.payroll}`} className="font-bold text-brand-500 hover:underline">{viewingProd.payroll}</a>
+                    </div>
+                  )}
+                </div>
+                {Object.keys(viewingProd.crew).length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-2">Crew List</h4>
+                    <div className="grid grid-cols-1 gap-2">
+                      {Object.entries(viewingProd.crew).map(([role, name]) => (
+                        <div key={role} className="flex justify-between items-center p-3 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-xl">
+                          <span className="text-[10px] font-black uppercase text-slate-400">{role}</span>
+                          <span className="text-xs font-bold">{name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Modal>
+
+          <Modal isOpen={!!wipeModal} onClose={() => setWipeModal(null)} title="Confirm Wipe">
+            <div className="space-y-6 text-center">
+              <div className="bg-red-500/10 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto text-red-500"><Icons.Trash /></div>
+              <p className="text-sm text-slate-500">Are you sure you want to permanently delete all <span className="font-bold text-slate-800 dark:text-slate-200">{wipeModal === 'entries' ? 'work logs' : 'production data'}</span>? This action cannot be undone.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setWipeModal(null)} className="flex-1 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black rounded-2xl uppercase text-[10px]">Cancel</button>
+                <button onClick={() => handleWipeDatabase(wipeModal)} className="flex-1 py-4 bg-red-500 text-white font-black rounded-2xl uppercase text-[10px] shadow-lg shadow-red-500/20">Delete All</button>
+              </div>
+            </div>
+          </Modal>
+          </main>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
