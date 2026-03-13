@@ -19,6 +19,14 @@ import { parseHTMLText } from './htmlParser';
 import { parsePDFFile } from './pdfParser';
 
 import { StatGrid } from './components/StatGrid';
+
+// Safely access environment variables whether in Node or typical Vite browser env
+const getEnvVar = (key: string) => {
+  if (typeof process !== 'undefined' && process.env) return process.env[key];
+  if (typeof import.meta !== 'undefined' && (import.meta as any).env) return (import.meta as any).env[key];
+  return undefined;
+};
+
 import { EntryForm } from './components/EntryForm';
 import { WeeklyCard } from './components/WeeklyCard';
 import { ProductionCard } from './components/ProductionCard';
@@ -113,12 +121,12 @@ const App: React.FC = () => {
       try {
         // In AI Studio, environment variables are available via process.env
         const firebaseConfig = {
-          apiKey: process.env.FIREBASE_API_KEY,
-          authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-          messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-          appId: process.env.FIREBASE_APP_ID
+          apiKey: getEnvVar('FIREBASE_API_KEY'),
+          authDomain: getEnvVar('FIREBASE_AUTH_DOMAIN'),
+          projectId: getEnvVar('FIREBASE_PROJECT_ID'),
+          storageBucket: getEnvVar('FIREBASE_STORAGE_BUCKET'),
+          messagingSenderId: getEnvVar('FIREBASE_MESSAGING_SENDER_ID'),
+          appId: getEnvVar('FIREBASE_APP_ID')
         };
 
         if (!firebaseConfig.projectId) {
@@ -135,7 +143,7 @@ const App: React.FC = () => {
 
         setAuth(authInstance);
         setDb(dbInstance);
-        setAppId(process.env.APP_ID || 'default-app-id');
+        setAppId(getEnvVar('APP_ID') || 'default-app-id');
 
         // Handle anonymous sign-in for simplicity if no token provided
         await signInAnonymously(authInstance);
@@ -940,7 +948,7 @@ const App: React.FC = () => {
         setWipeModal={setWipeModal}
         lastModified={lastModified}
         lastBackup={lastBackup}
-        apiStatus={!!process.env.FIREBASE_PROJECT_ID}
+        apiStatus={!!getEnvVar('FIREBASE_PROJECT_ID')}
       />
       <WipeModal
         wipeModal={wipeModal}
