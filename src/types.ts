@@ -59,7 +59,7 @@ export interface DashSettings {
 }
 
 export interface ProdSettings {
-  role1: string;
-  role2: string;
-  showRates: boolean;
+  showAllCrew?: boolean;
+  hiddenCrewRoles?: string[];
 }
+

@@ -1,11 +1,21 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --app-accent-50: #f0f9ff;
+  --app-accent-100: #e0f2fe;
+  --app-accent-500: #0ea5e9;
+  --app-accent-600: #0284c7;
+  --app-accent-700: #0369a1;
+}
+
 @theme {
-  --color-brand-50: #f0f9ff;
-  --color-brand-100: #e0f2fe;
-  --color-brand-500: #0ea5e9;
-  --color-brand-600: #0284c7;
-  --color-brand-700: #0369a1;
+  --color-brand-50: var(--app-accent-50);
+  --color-brand-100: var(--app-accent-100);
+  --color-brand-500: var(--app-accent-500);
+  --color-brand-600: var(--app-accent-600);
+  --color-brand-700: var(--app-accent-700);
 }
 
 @layer utilities {

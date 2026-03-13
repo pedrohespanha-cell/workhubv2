@@ -1,5 +1,4 @@
-import { WagePeriod, Production } from './types';
-import { WAGE_PERIODS, MAP_POS, WAGES } from './constants';
+import { WagePeriod } from './types';
 
 export function getISOWeek(d: Date) {
   const date = new Date(d.getTime());
@@ -19,7 +18,12 @@ export function calculateHours(start: string, end: string) {
 
 export function calculateOT(act: number, type: string) {
   if (!act || type === 'unknown') return act || 0;
-  let earned = act <= 8 ? act : act <= 12 ? 8 + (act - 8) * 1.5 : act <= 14 ? 8 + 6 + (act - 12) * 2 : 8 + 6 + 4 + (act - 14) * 3;
+  // Based on IATSE bounds:
+  // <= 8: 1x
+  // >8 to 12: 1.5x (max 4 hrs = 6)
+  // >12 to 15: 2x (max 3 hrs = 6)
+  // > 15: 3x
+  let earned = act <= 8 ? act : act <= 12 ? 8 + (act - 8) * 1.5 : act <= 15 ? 8 + 6 + (act - 12) * 2 : 8 + 6 + 6 + (act - 15) * 3;
   const min = type === '8hr' ? 8 : type === '10hr' ? 11 : type === '12hr' ? 14 : 0;
   return Math.max(earned, min);
 }
@@ -61,31 +65,4 @@ export function parseCSVLine(text: string) {
   return res.map(s => s.replace(/^"|"$/g, '').trim());
 }
 
-export function mapTierToStandard(rawTier: string) {
-  if (!rawTier) return "Standard Television";
-  const t = rawTier.toLowerCase();
-  if (t.includes('rumoured')) return "Rumoured";
-  if (t.includes('premium') || t.includes('hbsvod tier 1')) return "Premium Network & SVOD";
-  if (t.includes('mid-tier') || t.includes('hbsvod tier 2')) return "Mid-Tier Network & SVOD";
-  if (t.includes('entry') || t.includes('hbsvod tier 3')) return "Entry-Tier Network & SVOD";
-  if (t.includes('feature')) return t.includes('low budget') ? "Low Budget Feature Films" : "Feature Films";
-  if (t.includes('new episodic')) return "New Episodic Series";
-  return "Standard Television"; 
-}
 
-export function getCurrentRate(tier: string, roleName: string) {
-  if(!tier || tier === 'Rumoured' || !roleName) return null;
-  const stdTier = mapTierToStandard(tier);
-  const stdRole = MAP_POS[roleName];
-  if(!WAGES[stdTier] || !WAGES[stdTier][stdRole]) return null;
-
-  const now = new Date();
-  let periodIdx = 0;
-  for (let p of WAGE_PERIODS) {
-    if (now >= new Date(p.start) && now <= new Date(p.end)) {
-      periodIdx = p.idx;
-      break;
-    }
-  }
-  return WAGES[stdTier][stdRole][periodIdx];
-}

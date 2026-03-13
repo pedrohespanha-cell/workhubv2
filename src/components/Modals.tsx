@@ -1,7 +1,6 @@
 import React from 'react';
 import { Icons } from '../constants';
 import { DashSettings, ProdSettings, Production } from '../types';
-import { mapTierToStandard, getCurrentRate } from '../utils';
 
 interface PayModalProps {
   isOpen: boolean;
@@ -46,89 +45,162 @@ export const ProdSettingsModal: React.FC<ProdSettingsModalProps> = ({ isOpen, on
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm border dark:border-slate-700 shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
-        <h3 className="text-2xl font-black mb-2 tracking-tight">Show Details</h3>
-        <p className="text-xs text-slate-500 font-bold mb-6">Select which crew roles to highlight.</p>
+        <h3 className="text-2xl font-black mb-2 tracking-tight">Show Details Settings</h3>
+        <p className="text-xs text-slate-500 font-bold mb-6">Customize what appears on production cards.</p>
 
-        <div className="space-y-4">
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Primary Role Highlight</label>
-            <select value={prodSettings.role1} onChange={e => saveProdSettings('role1', e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500">
-              {allAvailableRoles.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Secondary Role Highlight</label>
-            <select value={prodSettings.role2} onChange={e => saveProdSettings('role2', e.target.value)} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500">
-              {allAvailableRoles.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-          <div className="pt-2 border-t dark:border-slate-800">
-            <label className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <span className="text-xs font-bold">Display Hourly Rates</span>
-              <input type="checkbox" checked={prodSettings.showRates} onChange={() => saveProdSettings('showRates', !prodSettings.showRates)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
-            </label>
-          </div>
+        <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+          {allAvailableRoles && allAvailableRoles.map(role => {
+            const defaultVisible = ['Gaffer', 'Rigging Gaffer'];
+            const isHidden = prodSettings.hiddenCrewRoles ? prodSettings.hiddenCrewRoles.includes(role) : !defaultVisible.includes(role);
+            return (
+              <label key={role} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{role}</span>
+                <input
+                  type="checkbox"
+                  checked={!isHidden}
+                  onChange={e => {
+                    const currentHidden = prodSettings.hiddenCrewRoles || allAvailableRoles.filter(r => !defaultVisible.includes(r));
+                    if (e.target.checked) {
+                      // Remove from hidden
+                      saveProdSettings('hiddenCrewRoles', currentHidden.filter(r => r !== role));
+                    } else {
+                      // Add to hidden
+                      if (!currentHidden.includes(role)) {
+                        saveProdSettings('hiddenCrewRoles', [...currentHidden, role]);
+                      }
+                    }
+                  }}
+                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4"
+                />
+              </label>
+            );
+          })}
+          {(!allAvailableRoles || allAvailableRoles.length === 0) && (
+            <p className="text-xs text-slate-400 font-bold italic text-center py-4">No specific roles extracted yet.</p>
+          )}
         </div>
+
         <button onClick={onClose} className="w-full mt-8 py-4 bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 font-black rounded-2xl uppercase text-[10px] tracking-widest transition-transform hover:scale-105">Done</button>
       </div>
     </div>
   );
 };
 
-interface DashSettingsModalProps {
+interface GlobalSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   dashSettings: DashSettings;
   toggleDashSetting: (k: string) => void;
+  theme: 'dark' | 'light';
+  setTheme: (t: 'dark' | 'light') => void;
+  accentColor: string;
+  setAccentColor: (c: string) => void;
+  setWipeModal: (type: string | null) => void;
+  lastModified: string;
+  lastBackup: string;
+  apiStatus: boolean;
 }
 
-export const DashSettingsModal: React.FC<DashSettingsModalProps> = ({ isOpen, onClose, dashSettings, toggleDashSetting }) => {
+export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
+  isOpen, onClose, dashSettings, toggleDashSetting, theme, setTheme, accentColor, setAccentColor, setWipeModal, lastModified, lastBackup, apiStatus
+}) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm border dark:border-slate-700 shadow-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
-        <h3 className="text-2xl font-black mb-2 tracking-tight">Dashboard Settings</h3>
-        <p className="text-xs text-slate-500 font-bold mb-6">Toggle which stats are visible across the app.</p>
-
-        <div className="space-y-3 max-h-64 overflow-y-auto no-scrollbar pr-2 pb-6">
-          <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2">Global & Monthly Views</h4>
-          {[
-            { key: 'gross', label: 'Total Gross Pay' },
-            { key: 'net', label: 'Total Net Pay' },
-            { key: 'hourlyGross', label: 'Hourly Gross' },
-            { key: 'hourlyNet', label: 'Hourly Net' },
-            { key: 'actualHrs', label: 'Actual Hours Worked' },
-            { key: 'payableHrs', label: 'Payable Hours (incl. guarantee)' },
-            { key: 'days', label: 'Total Days Worked' },
-            { key: 'shows', label: 'Total Shows Worked' },
-            { key: 'weeksWorked', label: 'Total Weeks Worked' },
-            { key: 'avgPerWeek', label: 'Average Per Week' },
-            { key: 'avgPerMonth', label: 'Average Per Month' },
-            { key: 'pending', label: 'Pending Cheques Warning' }
-          ].map(opt => (
-            <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <span className="text-xs font-bold">{opt.label}</span>
-              <input type="checkbox" checked={(dashSettings as any)[opt.key]} onChange={() => toggleDashSetting(opt.key)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
-            </label>
-          ))}
-
-          <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 pt-4">Weekly List Header Views</h4>
-          {[
-            { key: 'weekGross', label: 'Weekly Gross' },
-            { key: 'weekNet', label: 'Weekly Net' },
-            { key: 'weekHourlyGross', label: 'Hourly Gross' },
-            { key: 'weekHourlyNet', label: 'Hourly Net' },
-            { key: 'weekShows', label: 'Total Shows Worked' },
-            { key: 'weekPayableHrs', label: 'Payable Hours' },
-            { key: 'weekActualHrs', label: 'Actual Hours' }
-          ].map(opt => (
-            <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-              <span className="text-xs font-bold">{opt.label}</span>
-              <input type="checkbox" checked={(dashSettings as any)[opt.key]} onChange={() => toggleDashSetting(opt.key)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
-            </label>
-          ))}
+      <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 w-full max-w-sm border dark:border-slate-700 shadow-2xl animate-slide-up relative flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-2 shrink-0">
+          <h3 className="text-2xl font-black tracking-tight">Settings</h3>
+          <button onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full hover:scale-110 transition-transform"><Icons.X /></button>
         </div>
-        <button onClick={onClose} className="w-full mt-6 py-4 bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 font-black rounded-2xl uppercase text-[10px] tracking-widest transition-transform hover:scale-105">Save View</button>
+
+        <div className="space-y-6 overflow-y-auto no-scrollbar pr-2 pb-6 flex-1">
+          {/* Theme & Aesthetics */}
+          <div>
+            <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3 mt-2">Appearance</h4>
+            <div className="flex gap-2 mb-4">
+              <button onClick={() => setTheme('light')} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border transition-colors ${theme === 'light' ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-900/20' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}>
+                <Icons.Moon /> Light
+              </button>
+              <button onClick={() => setTheme('dark')} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl border transition-colors ${theme === 'dark' ? 'border-brand-500 bg-brand-50 text-brand-600 dark:bg-brand-900/20' : 'border-slate-200 dark:border-slate-800 text-slate-500'}`}>
+                <Icons.Moon /> Dark
+              </button>
+            </div>
+
+            <label className="text-[10px] font-black uppercase text-slate-500 tracking-widest block mb-2">Accent Color</label>
+            <div className="flex gap-3 mt-1">
+              {[
+                { id: 'blue', color: 'bg-sky-500' },
+                { id: 'emerald', color: 'bg-emerald-500' },
+                { id: 'rose', color: 'bg-rose-500' },
+                { id: 'purple', color: 'bg-purple-500' },
+                { id: 'amber', color: 'bg-amber-500' },
+              ].map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => setAccentColor(c.id)}
+                  className={`w-8 h-8 rounded-full ${c.color} flex items-center justify-center transition-transform hover:scale-110 ${accentColor === c.id ? 'ring-2 ring-offset-2 ring-slate-400 dark:ring-slate-500 ring-offset-white dark:ring-offset-slate-900 scale-110' : ''}`}
+                >
+                  {accentColor === c.id && <div className="w-2 h-2 bg-white rounded-full"></div>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dash Settings */}
+          <div>
+            <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3">Dashboard Views</h4>
+            {[
+              { key: 'gross', label: 'Total Gross Pay' },
+              { key: 'net', label: 'Total Net Pay' },
+              { key: 'hourlyGross', label: 'Hourly Gross' },
+              { key: 'hourlyNet', label: 'Hourly Net' },
+              { key: 'actualHrs', label: 'Actual Hours Worked' },
+              { key: 'payableHrs', label: 'Payable Hours' },
+              { key: 'days', label: 'Total Days Worked' },
+              { key: 'shows', label: 'Total Shows Worked' },
+              { key: 'weeksWorked', label: 'Total Weeks Worked' },
+              { key: 'avgPerWeek', label: 'Average Per Week' },
+              { key: 'avgPerMonth', label: 'Average Per Month' },
+              { key: 'pending', label: 'Pending Cheques Warning' }
+            ].map(opt => (
+              <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors mb-2">
+                <span className="text-xs font-bold">{opt.label}</span>
+                <input type="checkbox" checked={(dashSettings as any)[opt.key]} onChange={() => toggleDashSetting(opt.key)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
+              </label>
+            ))}
+          </div>
+
+          {/* Data Management */}
+          <div>
+            <h4 className="text-[10px] font-black uppercase text-rose-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3">Data Management</h4>
+            <div className="flex gap-2 mb-4">
+              <button onClick={() => { onClose(); setWipeModal('entries'); }} className="flex-1 py-3 text-[10px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl flex items-center justify-center gap-1 transition-colors"><Icons.Wipe /> Wipe Logs</button>
+              <button onClick={() => { onClose(); setWipeModal('productions'); }} className="flex-1 py-3 text-[10px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl flex items-center justify-center gap-1 transition-colors"><Icons.Wipe /> Wipe Shows</button>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-950/50 p-4 rounded-2xl border dark:border-slate-800/50 space-y-2 mt-6">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase text-slate-400">Database Sync</span>
+                <span className={`text-[10px] font-bold ${apiStatus ? 'text-emerald-500' : 'text-amber-500'}`}>
+                  {apiStatus ? 'Online (Firebase)' : 'Local Only'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase text-slate-400">Last Modified</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{lastModified}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase text-slate-400">Last External Import</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{lastBackup}</span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t dark:border-slate-800/50 mt-2">
+                <span className="text-[10px] font-black uppercase text-slate-400">App Version</span>
+                <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 gap-1 flex items-center">v2.1.0 <span className="text-emerald-500 font-black ml-1">✓</span></span>
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   );
@@ -165,7 +237,6 @@ interface ViewingProdModalProps {
 
 export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd, setViewingProd, prodSettings }) => {
   if (!viewingProd) return null;
-  const cleanTier = mapTierToStandard(viewingProd.tier);
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md p-4 flex items-center justify-center" onClick={() => setViewingProd(null)}>
@@ -177,7 +248,7 @@ export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd,
           </div>
           <div className="flex justify-between items-start relative z-10">
             <div>
-              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-3 inline-block shadow-sm ${viewingProd.status === 'Rumoured' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : cleanTier.includes('Feature') ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' : cleanTier.includes('Premium') ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-brand-500 text-white dark:bg-brand-600'}`}>{cleanTier}</span>
+              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md mb-3 inline-block shadow-sm ${viewingProd.status === 'Rumoured' ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400' : 'bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400'}`}>{viewingProd.tier || 'Standard'}</span>
               <h2 className="text-2xl md:text-3xl font-black tracking-tighter leading-tight pr-4">{viewingProd.name.replace('WRAPPED - ', '').replace('RUMOURED - ', '')}</h2>
               <p className="text-xs font-bold text-slate-500 mt-2 flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-700"></span> {viewingProd.dates || 'Dates TBA'}</p>
             </div>
@@ -217,11 +288,11 @@ export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd,
           {viewingProd.address && (
             <div className="p-4 rounded-2xl border dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
               <p className="text-[9px] uppercase font-black text-slate-400 mb-1 tracking-widest">Production Address</p>
-              <a 
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(viewingProd.address)}`} 
-                target="_blank" 
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(viewingProd.address)}`}
+                target="_blank"
                 rel="noopener noreferrer"
-                className="font-bold text-brand-500 flex items-center gap-2 text-sm hover:underline"
+                className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2 text-sm hover:underline"
               >
                 <Icons.MapPin /> {viewingProd.address}
               </a>
@@ -231,19 +302,19 @@ export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd,
           {(viewingProd.contractLink || viewingProd.callSheetLink) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {viewingProd.contractLink && (
-                <a href={viewingProd.contractLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-brand-200 bg-brand-50 dark:bg-brand-900/10 dark:border-brand-500/30 flex items-center justify-between group">
+                <a href={viewingProd.contractLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-slate-200 bg-slate-50 dark:bg-slate-900 dark:border-slate-800 flex items-center justify-between group">
                   <div>
-                    <p className="text-[9px] uppercase font-black text-brand-600 dark:text-brand-400 mb-1 tracking-widest">Contract</p>
-                    <p className="font-bold text-sm">View Document</p>
+                    <p className="text-[9px] uppercase font-black text-slate-500 dark:text-slate-400 mb-1 tracking-widest">Contract</p>
+                    <p className="font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-brand-500 transition-colors">View Document</p>
                   </div>
                   <Icons.Link />
                 </a>
               )}
               {viewingProd.callSheetLink && (
-                <a href={viewingProd.callSheetLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-brand-200 bg-brand-50 dark:bg-brand-900/10 dark:border-brand-500/30 flex items-center justify-between group">
+                <a href={viewingProd.callSheetLink} target="_blank" rel="noopener noreferrer" className="p-4 rounded-2xl border border-slate-200 bg-slate-50 dark:bg-slate-900 dark:border-slate-800 flex items-center justify-between group">
                   <div>
-                    <p className="text-[9px] uppercase font-black text-brand-600 dark:text-brand-400 mb-1 tracking-widest">Call Sheet</p>
-                    <p className="font-bold text-sm">View Document</p>
+                    <p className="text-[9px] uppercase font-black text-slate-500 dark:text-slate-400 mb-1 tracking-widest">Call Sheet</p>
+                    <p className="font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-indigo-500 transition-colors">View Document</p>
                   </div>
                   <Icons.Link />
                 </a>
@@ -255,13 +326,10 @@ export const ViewingProdModal: React.FC<ViewingProdModalProps> = ({ viewingProd,
             <p className="text-[10px] uppercase font-black text-slate-400 mb-4 tracking-widest ml-1">Full Crew Details</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Object.entries(viewingProd.crew || {}).map(([role, name]) => {
-                const isHighlighted = role === prodSettings.role1 || role === prodSettings.role2;
-                const roleRate = prodSettings.showRates ? getCurrentRate(viewingProd.tier, role) : null;
                 return (
-                  <div key={role} className={`flex flex-col p-4 rounded-2xl border shadow-sm transition-colors ${isHighlighted ? 'bg-brand-50 border-brand-200 dark:bg-brand-900/10 dark:border-brand-500/30' : 'bg-white dark:bg-slate-900 dark:border-slate-800'}`}>
+                  <div key={role} className={`flex flex-col p-4 rounded-2xl border shadow-sm transition-colors bg-white dark:bg-slate-900 dark:border-slate-800`}>
                     <div className="flex justify-between items-center w-full">
-                      <span className={`text-[9px] font-black uppercase tracking-widest ${isHighlighted ? 'text-brand-600 dark:text-brand-400' : 'text-slate-400'}`}>{role}</span>
-                      {roleRate && <span className="text-[9px] font-black text-emerald-500">${roleRate}/hr</span>}
+                      <span className={`text-[9px] font-black uppercase tracking-widest text-slate-400`}>{role}</span>
                     </div>
                     <span className="text-sm font-bold mt-1 truncate">{name}</span>
                   </div>

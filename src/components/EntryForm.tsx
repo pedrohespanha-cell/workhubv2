@@ -1,6 +1,6 @@
 import React from 'react';
 import { Entry, Production } from '../types';
-import { POSITIONS, Icons } from '../constants';
+import { Icons } from '../constants';
 
 interface EntryFormProps {
   formData: Entry;
@@ -51,9 +51,7 @@ export const EntryForm: React.FC<EntryFormProps> = ({
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col min-w-0">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 text-center">Position</label>
-            <select value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500">
-              {POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <input type="text" value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500" placeholder="e.g. Gaffer, Grip" />
           </div>
           <div className="flex flex-col min-w-0">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 text-center">Guarantee</label>
