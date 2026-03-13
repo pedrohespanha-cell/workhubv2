@@ -13,8 +13,11 @@ import {
   getWeekKey,
   getWeekDateRange,
   parseDates,
-  parseCSVLine
+  parseCSVLine,
+  convertTo24Hour,
+  standardizePosition
 } from './utils';
+import { SortFilterModal } from './components/SortFilterModal';
 import { parseHTMLText } from './htmlParser';
 import { parsePDFFile } from './pdfParser';
 
@@ -31,6 +34,8 @@ import { EntryForm } from './components/EntryForm';
 import { WeeklyCard } from './components/WeeklyCard';
 import { ProductionCard } from './components/ProductionCard';
 import { PayModal, ProdSettingsModal, GlobalSettingsModal, WipeModal, ViewingProdModal } from './components/Modals';
+import { BatchEditModal } from './components/BatchEditModal';
+import { CSVReviewModal } from './components/CSVReviewModal';
 
 const App: React.FC = () => {
   // Firebase State
@@ -61,9 +66,14 @@ const App: React.FC = () => {
   const [payModal, setPayModal] = useState({ isOpen: false, weekKey: '', showName: '', gross: '' as string | number, net: '' as string | number });
   const [viewingProd, setViewingProd] = useState<Production | null>(null);
   const [wipeModal, setWipeModal] = useState<string | null>(null);
+  const [selectedEntryIds, setSelectedEntryIds] = useState<Set<number>>(new Set());
+  const [batchEditModal, setBatchEditModal] = useState<{ isOpen: boolean, field: string, value: any }>({ isOpen: false, field: '', value: '' });
+  const [pendingImports, setPendingImports] = useState<Entry[]>([]);
+  const [csvReviewModal, setCSVReviewModal] = useState(false);
 
   // Productions Tab States
   const [prodSearchQuery, setProdSearchQuery] = useState('');
+  const [isSortFilterOpen, setIsSortFilterOpen] = useState(false);
   const [prodFilter, setProdFilter] = useState('All');
   const [prodSort, setProdSort] = useState({ key: 'startDate', dir: 'asc' });
   const [prodViewMode, setProdViewMode] = useState<'card' | 'list'>('card');
@@ -75,7 +85,12 @@ const App: React.FC = () => {
   const [showFilter, setShowFilter] = useState('All');
   const [pendingFilter, setPendingFilter] = useState(false);
   const [monthShowFilters, setMonthShowFilters] = useState<Record<string, string | null>>({});
-  const [formData, setFormData] = useState<Entry>({ id: 0, date: new Date().toISOString().split('T')[0], show: '', position: 'Rigging LX', startTime: '07:00', endTime: '19:00', notes: '', gross: '', net: '', minPayType: 'unknown', saveDefault: true, hours: 0, payableHours: 0 });
+  const getTodayISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  const [formData, setFormData] = useState<Entry>({ id: 0, date: getTodayISO(), show: '', position: 'Rigging LX', startTime: '07:00', endTime: '19:00', notes: '', gross: '', net: '', minPayType: 'unknown', saveDefault: true, hours: 0, payableHours: 0 });
   const [isEditingEntry, setIsEditingEntry] = useState(false);
   const [scratchpadText, setScratchpadText] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
@@ -307,7 +322,11 @@ const App: React.FC = () => {
     showStatus(`${type === 'productions' ? 'Shows' : 'Logs'} cleared.`);
   };
 
-  const allShowsList = useMemo(() => [...new Set(productions.map(p => p.name).filter(Boolean))].sort(), [productions]);
+  const allShowsList = useMemo(() => {
+    const fromProds = productions.map(p => p.name).filter(Boolean);
+    const fromEntries = entries.map(e => e.show).filter(Boolean);
+    return [...new Set([...fromProds, ...fromEntries])].sort();
+  }, [productions, entries]);
 
   const allAvailableRoles = useMemo(() => {
     const roles = new Set<string>();
@@ -323,7 +342,10 @@ const App: React.FC = () => {
       if (showFilter !== 'All' && e.show !== showFilter) return false;
       if (pendingFilter && (e.gross || e.net)) return false;
 
-      const d = new Date(e.date + 'T12:00:00');
+      let d = new Date(e.date + 'T12:00:00');
+      if (isNaN(d.getTime())) d = new Date(e.date); // fallback
+      if (isNaN(d.getTime())) return false; // Invalid date entirely
+
       if (globalFilter === 'All') return true;
       if (globalFilter === 'Year') return d.getFullYear() === now.getFullYear();
       if (globalFilter === 'Month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -335,7 +357,10 @@ const App: React.FC = () => {
   const daysSinceLastWork = useMemo(() => {
     if (entries.length === 0) return null;
     const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
-    const lastDate = new Date(sorted[0].date + 'T12:00:00');
+    let lastDate = new Date(sorted[0].date + 'T12:00:00');
+    if (isNaN(lastDate.getTime())) lastDate = new Date(sorted[0].date);
+    if (isNaN(lastDate.getTime())) return null;
+
     const today = new Date();
     return Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
   }, [entries]);
@@ -459,7 +484,7 @@ const App: React.FC = () => {
       const isDuplicate = entries.some(ent =>
         ent.date === formData.date &&
         ent.show === formData.show &&
-        ent.startTime === formData.startTime
+        ent.startTime === convertTo24Hour(formData.startTime)
       );
       if (isDuplicate) {
         showStatus("Duplicate entry detected!");
@@ -467,9 +492,23 @@ const App: React.FC = () => {
       }
     }
 
-    const h = calculateHours(formData.startTime, formData.endTime);
+    const start24 = convertTo24Hour(formData.startTime);
+    const end24 = convertTo24Hour(formData.endTime);
+    const stdPos = standardizePosition(formData.position);
+
+    const h = calculateHours(start24, end24);
     const ph = calculateOT(h, formData.minPayType);
-    const ent: Entry = { ...formData, id: isEditingEntry ? formData.id : Date.now(), hours: h, payableHours: ph, gross: formData.gross === '' ? '' : parseFloat(formData.gross as string), net: formData.net === '' ? '' : parseFloat(formData.net as string) };
+    const ent: Entry = { 
+      ...formData, 
+      id: isEditingEntry ? formData.id : Date.now(), 
+      startTime: start24,
+      endTime: end24,
+      position: stdPos,
+      hours: h, 
+      payableHours: ph, 
+      gross: formData.gross === '' ? '' : parseFloat(formData.gross as string), 
+      net: formData.net === '' ? '' : parseFloat(formData.net as string) 
+    };
 
     if (formData.saveDefault) {
       const defaults = JSON.parse(localStorage.getItem('pt_defaults') || '{}');
@@ -492,7 +531,64 @@ const App: React.FC = () => {
   async function handleTsDelete(id: number) {
     if (!db || !user) saveToHistory(entries.filter(e => e.id !== id));
     else await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(id)));
+    setSelectedEntryIds(prev => { const n = new Set(prev); n.delete(id); return n; });
   }
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedEntryIds);
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} entries?`)) return;
+
+    if (!db || !user) {
+      saveToHistory(entries.filter(e => !selectedEntryIds.has(e.id)));
+    } else {
+      const chunkSize = 400;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const b = writeBatch(db);
+        chunk.forEach(id => {
+          const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(id));
+          b.delete(ref);
+        });
+        await b.commit();
+      }
+    }
+    setSelectedEntryIds(new Set());
+    showStatus(`Deleted ${ids.length} entries`);
+  };
+
+  const handleBulkDuplicate = async () => {
+    const ids = Array.from(selectedEntryIds);
+    if (!ids.length) return;
+    
+    const toDup = entries.filter(e => selectedEntryIds.has(e.id));
+    const newEnts = toDup.map((e, idx) => {
+      const d = new Date(e.date + 'T12:00:00');
+      d.setDate(d.getDate() + 7); // Default to next week
+      return {
+        ...e,
+        id: Date.now() + idx,
+        date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      };
+    });
+
+    if (!db || !user) {
+      saveToHistory([...entries, ...newEnts]);
+    } else {
+      const chunkSize = 400;
+      for (let i = 0; i < newEnts.length; i += chunkSize) {
+        const chunk = newEnts.slice(i, i + chunkSize);
+        const b = writeBatch(db);
+        chunk.forEach(x => {
+          const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(x.id));
+          b.set(ref, x);
+        });
+        await b.commit();
+      }
+    }
+    setSelectedEntryIds(new Set());
+    showStatus(`Duplicated ${newEnts.length} entries to next week`);
+  };
 
   async function submitMarkPaid() {
     const group = weeklyGroups.find(g => g[0] === payModal.weekKey);
@@ -519,54 +615,155 @@ const App: React.FC = () => {
 
   const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
+    // Reset input so same file can be re-selected
+    e.target.value = '';
     const reader = new FileReader();
-    reader.onload = async (evt) => {
+    reader.onload = (evt) => {
       const result = evt.target?.result;
       if (typeof result !== 'string') return;
-      const lines = result.split('\n').filter(l => l.trim() !== '');
-      const batch: Entry[] = [];
+      // Strip carriage returns (Windows line endings) before processing
+      const cleanContent = result.replace(/\r/g, '');
+      const lines = cleanContent.split('\n').filter(l => l.trim() !== '');
+      if (lines.length < 2) { showStatus('CSV file is empty or has no data rows.'); return; }
+
+      const headers = parseCSVLine(lines[0]);
+      console.log('[CSV Import] Headers found:', headers);
+
+      // Fuzzy column finder - searches all headers for any of the given keywords
+      const getCol = (keywords: string[]) =>
+        headers.findIndex(h => keywords.some(k => h.toLowerCase().includes(k.toLowerCase())));
+
+      const dateIdx   = getCol(['date']);
+      const showIdx   = getCol(['show', 'production', 'proj']);
+      const posIdx    = getCol(['position', 'pos', 'role', 'job']);
+      const startIdx  = getCol(['start time', 'start', 'call', 'in']);
+      const endIdx    = getCol(['end time', 'end', 'wrap', 'out']);
+      const noteIdx   = getCol(['note', 'remark', 'comment']);
+      const grossIdx  = getCol(['gross']);
+      const netIdx    = getCol(['net']);
+      const hoursIdx  = getCol(['hours', 'actual']);
+      const minPayIdx = getCol(['min pay', 'minpay', 'pay type', 'paytype']);
+
+      console.log('[CSV Import] Column mapping:', { dateIdx, showIdx, posIdx, startIdx, endIdx, noteIdx, grossIdx, netIdx, hoursIdx, minPayIdx });
+
+      if (dateIdx === -1) { showStatus('CSV error: Could not find a "Date" column.'); return; }
+
+      const newEntries: Entry[] = [];
       for (let i = 1; i < lines.length; i++) {
-        const p = parseCSVLine(lines[i]);
-        if (p.length >= 8 && p[0]?.trim() && p[1]?.trim()) {
-          // Duplicate check
-          const isDuplicate = entries.some(ent => ent.date === p[0] && ent.show === p[1] && ent.startTime === p[3]) ||
-            batch.some(ent => ent.date === p[0] && ent.show === p[1] && ent.startTime === p[3]);
-          if (isDuplicate) continue;
+        const cols = parseCSVLine(lines[i]);
+        const dateVal = dateIdx !== -1 && cols[dateIdx]?.trim() ? cols[dateIdx].trim() : '';
+        if (!dateVal) continue; // Skip rows without a date
 
-          const h = p[8] ? parseFloat(p[8]) : calculateHours(p[3], p[4]) || 0;
-          const minPay = p[9] || 'unknown';
-          const gVal = parseFloat(p[6]);
-          const nVal = parseFloat(p[7]);
-
-          batch.push({
-            id: Date.now() + i,
-            date: p[0],
-            show: p[1],
-            position: p[2],
-            startTime: p[3],
-            endTime: p[4],
-            notes: p[5] || '',
-            gross: !isNaN(gVal) ? gVal : '',
-            net: !isNaN(nVal) ? nVal : '',
-            hours: h,
-            payableHours: calculateOT(h, minPay),
-            minPayType: minPay
-          });
+        // Normalize date to YYYY-MM-DD
+        let normalizedDate = dateVal;
+        const pDate = new Date(`${dateVal}T12:00:00`);
+        if (!isNaN(pDate.getTime())) {
+          normalizedDate = `${pDate.getFullYear()}-${String(pDate.getMonth()+1).padStart(2,'0')}-${String(pDate.getDate()).padStart(2,'0')}`;
         }
+
+        const rawShow  = showIdx !== -1 ? (cols[showIdx] || 'Unknown Show') : 'Unknown Show';
+        const rawPos   = posIdx  !== -1 ? (cols[posIdx]  || 'Rigging LX')   : 'Rigging LX';
+        const rawStart = startIdx !== -1 ? (cols[startIdx] || '07:00') : '07:00';
+        const rawEnd   = endIdx   !== -1 ? (cols[endIdx]   || '19:00') : '19:00';
+        const rawNotes = noteIdx  !== -1 ? (cols[noteIdx]  || '') : '';
+        const rawGross = grossIdx !== -1 ? cols[grossIdx] : '';
+        const rawNet   = netIdx   !== -1 ? cols[netIdx]   : '';
+        const rawMinPay = minPayIdx !== -1 ? (cols[minPayIdx] || 'unknown') : 'unknown';
+
+        const start24 = convertTo24Hour(rawStart);
+        const end24   = convertTo24Hour(rawEnd);
+        const stdPos  = standardizePosition(rawPos);
+
+        const rawH = hoursIdx !== -1 ? parseFloat(cols[hoursIdx] || '') : NaN;
+        const h = !isNaN(rawH) ? rawH : calculateHours(start24, end24);
+        const ph = calculateOT(h, rawMinPay);
+
+        const gVal = parseFloat(rawGross);
+        const nVal = parseFloat(rawNet);
+
+        newEntries.push({
+          id: Date.now() + i,
+          date: normalizedDate,
+          show: rawShow,
+          position: stdPos,
+          startTime: start24,
+          endTime: end24,
+          notes: rawNotes,
+          minPayType: rawMinPay,
+          hours: h,
+          payableHours: ph,
+          gross: !isNaN(gVal) ? gVal : '',
+          net:   !isNaN(nVal) ? nVal : '',
+        });
       }
-      if (!db || !user) {
-        setEntries(prev => [...prev, ...batch]);
+
+      console.log(`[CSV Import] Parsed ${newEntries.length} entries.`);
+      if (newEntries.length > 0) {
+        setPendingImports(newEntries);
+        setCSVReviewModal(true);
       } else {
+        showStatus('0 entries found. Verify the CSV has a "Date" column and data rows.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const commitCSVImport = async (finalEntries: Entry[]) => {
+    if (!db || !user) {
+      setEntries(prev => [...prev, ...finalEntries]);
+    } else {
+      const chunkSize = 400;
+      for (let i = 0; i < finalEntries.length; i += chunkSize) {
+        const chunk = finalEntries.slice(i, i + chunkSize);
         const b = writeBatch(db);
-        batch.forEach(x => {
+        chunk.forEach(x => {
           const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(x.id));
           b.set(ref, x);
         });
         await b.commit();
       }
-      showStatus(`Imported ${batch.length} entries!`);
-    };
-    reader.readAsText(file);
+    }
+    showStatus(`Imported ${finalEntries.length} entries!`);
+  };
+
+  const handleBulkEditSave = async (updates: Partial<Entry>) => {
+    const ids = Array.from(selectedEntryIds);
+    if (!ids.length) return;
+
+    // Sanitize updates
+    const sanitized: Partial<Entry> = { ...updates };
+    if (sanitized.position) sanitized.position = standardizePosition(sanitized.position);
+    if (sanitized.startTime) sanitized.startTime = convertTo24Hour(sanitized.startTime);
+    if (sanitized.endTime) sanitized.endTime = convertTo24Hour(sanitized.endTime);
+
+    const updatedEntries = entries.map(e => {
+      if (!selectedEntryIds.has(e.id)) return e;
+      const next = { ...e, ...sanitized };
+      if (sanitized.startTime || sanitized.endTime || sanitized.minPayType) {
+        const h = calculateHours(next.startTime, next.endTime);
+        next.hours = h;
+        next.payableHours = calculateOT(h, next.minPayType);
+      }
+      return next;
+    });
+
+    if (!db || !user) {
+      saveToHistory(updatedEntries);
+    } else {
+      const toUpdate = updatedEntries.filter(e => selectedEntryIds.has(e.id));
+      const chunkSize = 400;
+      for (let i = 0; i < toUpdate.length; i += chunkSize) {
+        const chunk = toUpdate.slice(i, i + chunkSize);
+        const b = writeBatch(db);
+        chunk.forEach(x => {
+          const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(x.id));
+          b.set(ref, x, { merge: true });
+        });
+        await b.commit();
+      }
+    }
+    setSelectedEntryIds(new Set());
+    showStatus(`Updated ${ids.length} entries`);
   };
 
   const handleCSVExport = () => {
@@ -585,7 +782,11 @@ const App: React.FC = () => {
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", `payroll_export_${new Date().toISOString().split('T')[0]}.csv`);
+    const exportDateStr = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    link.setAttribute("download", `payroll_export_${exportDateStr()}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -619,9 +820,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <nav className="border-b dark:border-slate-800 border-slate-200 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-          <div className="flex items-center gap-2">
+      <nav className="border-b dark:border-slate-800 border-slate-200 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-40 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center gap-4">
+          <div className="flex items-center gap-3 shrink-0">
             <div className="bg-brand-600 p-2 rounded-xl text-white shadow-lg"><Icons.Video /></div>
             <h1 className="text-xl font-black tracking-tighter uppercase hidden sm:block italic">Work<span className="text-brand-500">Hub</span></h1>
           </div>
@@ -631,6 +832,16 @@ const App: React.FC = () => {
             <button onClick={() => setMainMode('reports')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'reports' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Reports</button>
           </div>
           <div className="flex gap-2 items-center">
+            {/* Sort & Filter button - only visible in timesheets mode */}
+            {mainMode === 'timesheets' && (
+              <button
+                onClick={() => setIsSortFilterOpen(true)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all hover:scale-[1.02] active:scale-[0.98] ${(globalFilter !== 'All' || showFilter !== 'All' || pendingFilter) ? 'bg-brand-500 text-white border-transparent shadow-lg' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-brand-300'}`}
+              >
+                <Icons.Chart />
+                <span className="hidden sm:inline">Filter</span>
+              </button>
+            )}
             {history.length > 0 && (
               <button onClick={handleUndo} className="p-2 text-brand-500 hover:bg-brand-500/10 rounded-xl transition-all" title="Undo Last Change">
                 <Icons.Undo />
@@ -664,61 +875,63 @@ const App: React.FC = () => {
                     handleTsSubmit={handleTsSubmit}
                     autoCalculateGross={autoCalculateGross}
                   />
-
                   <div className="lg:col-span-8 space-y-6 pb-24">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2">
-                      <div className="flex gap-2 overflow-x-auto no-scrollbar w-full sm:w-auto items-center">
-                        {['All', 'Year', 'Month', 'Week'].map(f => (
-                          <button key={f} onClick={() => setGlobalFilter(f)} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all shrink-0 ${globalFilter === f ? 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 border-transparent shadow-sm' : 'border-slate-300 dark:border-slate-700 text-slate-500'}`}>{f === 'All' ? 'All Time' : `This ${f}`}</button>
-                        ))}
-
-                        <div className="h-6 w-px bg-slate-300 dark:bg-slate-700 mx-1"></div>
-
-                        <div className="relative group shrink-0">
-                          <button className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-1 ${showFilter !== 'All' ? 'bg-indigo-50 border-indigo-200 text-indigo-600 dark:bg-indigo-900/30' : 'border-slate-300 dark:border-slate-700 text-slate-500'}`}>
-                            <Icons.Video /> {showFilter === 'All' ? 'Filter Show' : showFilter}
-                          </button>
-                          <div className="absolute top-full mt-2 left-0 w-48 bg-white dark:bg-slate-900 border dark:border-slate-800 rounded-2xl shadow-xl z-50 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity overflow-hidden">
-                            <button onClick={() => setShowFilter('All')} className="w-full text-left px-4 py-3 text-xs font-black uppercase text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b dark:border-slate-800">All Shows</button>
-                            <div className="max-h-48 overflow-y-auto no-scrollbar">
-                              {allShowsList.map(s => (
-                                <button key={s} onClick={() => setShowFilter(s)} className={`w-full text-left px-4 py-3 text-xs font-bold truncate transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${showFilter === s ? 'text-brand-500' : ''}`}>{s}</button>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-
-                        <button onClick={() => setPendingFilter(!pendingFilter)} className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all shrink-0 flex items-center gap-1 ${pendingFilter ? 'bg-orange-50 border-orange-200 text-orange-600 dark:bg-orange-500/10 dark:border-orange-500/30 dark:text-orange-500' : 'border-slate-300 dark:border-slate-700 text-slate-500'}`}>
-                          Pending Pay
-                        </button>
-                      </div>
-                      <div className="flex gap-2 shrink-0 items-center">
-                        <label className="cursor-pointer px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-2">
-                          Import
-                          <input type="file" className="hidden" accept=".csv" onChange={handleCSVUpload} />
-                        </label>
-                        <button onClick={handleCSVExport} className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest bg-brand-500/10 text-brand-600 dark:text-brand-400 hover:bg-brand-500/20 transition-colors flex items-center gap-2">
-                          Export
-                        </button>
-                      </div>
-                    </div>
-
                     <StatGrid sourceData={stats} dashSettings={dashSettings} />
 
                     <div className="space-y-6">
                       {weeklyGroups.length === 0 ? (
                         <div className="text-center p-12 bg-white/50 dark:bg-slate-900/50 rounded-[2.5rem] border border-dashed dark:border-slate-800"><p className="text-slate-500 font-bold">No logs found for this filter.</p></div>
-                      ) : weeklyGroups.map(([wKey, wData]) => (
+                      ) : weeklyGroups.map(([wk, wd]) => (
                         <WeeklyCard
-                          key={wKey}
-                          wKey={wKey}
-                          wData={wData}
-                          isExpanded={expandedWeeks[wKey]}
-                          onEdit={(e) => { setFormData({ ...e, minPayType: e.minPayType || 'unknown', saveDefault: true }); setIsEditingEntry(true); setIsMobileFormOpen(true); }}
+                          key={wk}
+                          wKey={wk}
+                          wData={wd}
+                          isExpanded={!!expandedWeeks[wk]}
+                          dashSettings={dashSettings}
+                          toggleExpanded={() => setExpandedWeeks(prev => ({ ...prev, [wk]: !prev[wk] }))}
+                          onEdit={(e) => {
+                            setSelectedEntryIds(new Set([e.id]));
+                            setBatchEditModal({ isOpen: true, field: '', value: '' });
+                          }}
+                          onDelete={handleTsDelete}
                           onApplyPay={(wk, sn, g, n) => setPayModal({ isOpen: true, weekKey: wk, showName: sn, gross: g, net: n })}
+                          selectedIds={selectedEntryIds}
+                          onToggleSelect={(id) => setSelectedEntryIds(prev => {
+                            const n = new Set(prev);
+                            if (n.has(id)) n.delete(id);
+                            else n.add(id);
+                            return n;
+                          })}
                         />
                       ))}
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Batch Action Bar */}
+            {selectedEntryIds.size > 0 && (
+              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-8 duration-300">
+                <div className="bg-slate-900 dark:bg-slate-800 text-white px-6 py-4 rounded-[2rem] shadow-2xl border border-slate-700/50 flex items-center gap-6 backdrop-blur-xl">
+                  <div className="flex items-center gap-2 border-r border-slate-700 pr-6 mr-2">
+                    <span className="bg-brand-500 text-[10px] font-black w-6 h-6 flex items-center justify-center rounded-full">{selectedEntryIds.size}</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Selected</span>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <button onClick={() => setBatchEditModal({ isOpen: true, field: 'show', value: '' })} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-brand-400 transition-colors">
+                      <Icons.Edit /> Edit
+                    </button>
+                    <button onClick={handleBulkDuplicate} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-emerald-400 transition-colors">
+                      <Icons.Plus /> Duplicate
+                    </button>
+                    <button onClick={handleBulkDelete} className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest hover:text-rose-400 transition-colors">
+                      <Icons.Trash /> Delete
+                    </button>
+                    <button onClick={() => setSelectedEntryIds(new Set())} className="ml-4 p-2 hover:bg-white/10 rounded-full transition-colors text-slate-500">
+                      <Icons.X />
+                    </button>
                   </div>
                 </div>
               </div>
@@ -889,7 +1102,13 @@ const App: React.FC = () => {
                     return (
                       <div key={m} className={`bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border dark:border-slate-800 shadow-sm flex flex-col transition-all ${activeShow ? 'ring-2 ring-brand-500 shadow-md transform scale-[1.01]' : ''}`}>
                         <div className="flex justify-between items-center mb-6">
-                          <h4 className="font-black text-xl capitalize">{new Date(m + '-02T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
+                          <h4 className="font-black text-xl capitalize">{
+                            (() => {
+                              const md = new Date(m + '-02T12:00:00');
+                              if (isNaN(md.getTime())) return m;
+                              return md.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                            })()
+                          }</h4>
                           {activeShow && <button onClick={() => setMonthShowFilters(prev => ({ ...prev, [m]: null }))} className="text-[10px] font-black uppercase text-brand-500 hover:text-rose-500">Clear</button>}
                         </div>
 
@@ -948,7 +1167,21 @@ const App: React.FC = () => {
         setWipeModal={setWipeModal}
         lastModified={lastModified}
         lastBackup={lastBackup}
-        apiStatus={!!getEnvVar('FIREBASE_PROJECT_ID')}
+        apiStatus={!!db}
+        onImport={handleCSVUpload}
+        onExport={handleCSVExport}
+      />
+
+      <SortFilterModal
+        isOpen={isSortFilterOpen}
+        onClose={() => setIsSortFilterOpen(false)}
+        globalFilter={globalFilter}
+        setGlobalFilter={setGlobalFilter}
+        showFilter={showFilter}
+        setShowFilter={setShowFilter}
+        pendingFilter={pendingFilter}
+        setPendingFilter={setPendingFilter}
+        allShowsList={allShowsList}
       />
       <WipeModal
         wipeModal={wipeModal}
@@ -959,6 +1192,21 @@ const App: React.FC = () => {
         viewingProd={viewingProd}
         setViewingProd={setViewingProd}
         prodSettings={prodSettings}
+      />
+      
+      <BatchEditModal 
+          isOpen={batchEditModal.isOpen} 
+          onClose={() => setBatchEditModal({ ...batchEditModal, isOpen: false })} 
+          onSave={handleBulkEditSave}
+          selectedCount={selectedEntryIds.size}
+          productions={productions}
+      />
+
+      <CSVReviewModal 
+          isOpen={csvReviewModal} 
+          onClose={() => setCSVReviewModal(false)} 
+          entries={pendingImports} 
+          onConfirm={commitCSVImport} 
       />
     </div >
   );

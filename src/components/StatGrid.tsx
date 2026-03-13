@@ -11,6 +11,7 @@ interface StatGridProps {
 }
 
 export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, isWeekHeader = false, compactMode = false }) => {
+  if (!dashSettings) return null;
   const dps: { label: string; val: string | number; type: string }[] = [];
   const actualH = sourceData.actualHours ?? sourceData.actualH ?? sourceData.th ?? 0;
   const g = sourceData.gross ?? sourceData.g ?? sourceData.tg ?? 0;
@@ -43,14 +44,14 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
     };
 
     return (
-      <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4">
+      <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4 min-w-0">
         {dps.map((dp, i) => (
-          <div key={i} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip cursor-pointer sm:cursor-auto">
-            <p className="text-[9px] text-slate-400 font-black uppercase flex items-center gap-1 sm:justify-end">
+          <div key={i} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip cursor-pointer sm:cursor-auto min-w-0">
+            <p className="text-[9px] text-slate-400 font-black uppercase flex items-center gap-1 sm:justify-end truncate">
               {dp.label}
               <span className="sm:hidden text-slate-300 dark:text-slate-600"><Icons.Info /></span>
             </p>
-            <p className={`font-black ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
+            <p className={`font-black truncate ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
 
             <div className="absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-50 text-center font-bold">
               {tooltips[dp.label] || 'Calculated statistic.'}

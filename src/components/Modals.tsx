@@ -99,11 +99,14 @@ interface GlobalSettingsModalProps {
   lastModified: string;
   lastBackup: string;
   apiStatus: boolean;
+  onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onExport: () => void;
 }
 
 export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
-  isOpen, onClose, dashSettings, toggleDashSetting, theme, setTheme, accentColor, setAccentColor, setWipeModal, lastModified, lastBackup, apiStatus
+  isOpen, onClose, dashSettings, toggleDashSetting, theme, setTheme, accentColor, setAccentColor, setWipeModal, lastModified, lastBackup, apiStatus, onImport, onExport
 }) => {
+  const [dashOpen, setDashOpen] = React.useState(false);
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -146,33 +149,54 @@ export const GlobalSettingsModal: React.FC<GlobalSettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Dash Settings */}
+          {/* Dash Settings - Collapsible */}
           <div>
-            <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3">Dashboard Views</h4>
-            {[
-              { key: 'gross', label: 'Total Gross Pay' },
-              { key: 'net', label: 'Total Net Pay' },
-              { key: 'hourlyGross', label: 'Hourly Gross' },
-              { key: 'hourlyNet', label: 'Hourly Net' },
-              { key: 'actualHrs', label: 'Actual Hours Worked' },
-              { key: 'payableHrs', label: 'Payable Hours' },
-              { key: 'days', label: 'Total Days Worked' },
-              { key: 'shows', label: 'Total Shows Worked' },
-              { key: 'weeksWorked', label: 'Total Weeks Worked' },
-              { key: 'avgPerWeek', label: 'Average Per Week' },
-              { key: 'avgPerMonth', label: 'Average Per Month' },
-              { key: 'pending', label: 'Pending Cheques Warning' }
-            ].map(opt => (
-              <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors mb-2">
-                <span className="text-xs font-bold">{opt.label}</span>
-                <input type="checkbox" checked={(dashSettings as any)[opt.key]} onChange={() => toggleDashSetting(opt.key)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
-              </label>
-            ))}
+            <button
+              onClick={() => setDashOpen(o => !o)}
+              className="w-full flex items-center justify-between text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3"
+            >
+              <span>Dashboard Views</span>
+              <span className={`transition-transform duration-200 ${dashOpen ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {dashOpen && (
+              <div className="space-y-2">
+                {[
+                  { key: 'gross', label: 'Total Gross Pay' },
+                  { key: 'net', label: 'Total Net Pay' },
+                  { key: 'hourlyGross', label: 'Hourly Gross' },
+                  { key: 'hourlyNet', label: 'Hourly Net' },
+                  { key: 'actualHrs', label: 'Actual Hours Worked' },
+                  { key: 'payableHrs', label: 'Payable Hours' },
+                  { key: 'days', label: 'Total Days Worked' },
+                  { key: 'shows', label: 'Total Shows Worked' },
+                  { key: 'weeksWorked', label: 'Total Weeks Worked' },
+                  { key: 'avgPerWeek', label: 'Average Per Week' },
+                  { key: 'avgPerMonth', label: 'Average Per Month' },
+                  { key: 'pending', label: 'Pending Cheques Warning' }
+                ].map(opt => (
+                  <label key={opt.key} className="flex items-center justify-between p-3 rounded-xl border dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    <span className="text-xs font-bold">{opt.label}</span>
+                    <input type="checkbox" checked={(dashSettings as any)[opt.key]} onChange={() => toggleDashSetting(opt.key)} className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 w-4 h-4" />
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Data Management */}
           <div>
-            <h4 className="text-[10px] font-black uppercase text-rose-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3">Data Management</h4>
+            <h4 className="text-[10px] font-black uppercase text-brand-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3">Data Management</h4>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <label className="cursor-pointer px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2">
+                <Icons.Upload /> Import
+                <input type="file" className="hidden" accept=".csv" onChange={onImport} />
+              </label>
+              <button onClick={onExport} className="px-4 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest bg-brand-500/10 text-brand-600 dark:text-brand-400 hover:bg-brand-500/20 transition-colors flex items-center justify-center gap-2">
+                <Icons.Chart /> Export
+              </button>
+            </div>
+
+            <h4 className="text-[10px] font-black uppercase text-rose-500 tracking-widest border-b dark:border-slate-800 pb-2 mb-3 mt-6">Danger Zone</h4>
             <div className="flex gap-2 mb-4">
               <button onClick={() => { onClose(); setWipeModal('entries'); }} className="flex-1 py-3 text-[10px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl flex items-center justify-center gap-1 transition-colors"><Icons.Wipe /> Wipe Logs</button>
               <button onClick={() => { onClose(); setWipeModal('productions'); }} className="flex-1 py-3 text-[10px] uppercase font-black tracking-widest text-rose-500 bg-rose-500/10 hover:bg-rose-500/20 rounded-xl flex items-center justify-center gap-1 transition-colors"><Icons.Wipe /> Wipe Shows</button>
