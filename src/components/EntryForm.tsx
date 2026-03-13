@@ -1,6 +1,23 @@
-import React from 'react';
-import { Entry, Production } from '../types';
+import React, { useState } from 'react';
+import { Entry } from '../types';
 import { Icons } from '../constants';
+
+// Default known positions
+const DEFAULT_POSITIONS = ['Rigging LX', 'Shooting LX'];
+const POSITIONS_KEY = 'pt_custom_positions';
+
+function getSavedPositions(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(POSITIONS_KEY) || '[]');
+  } catch { return []; }
+}
+
+function savePosition(pos: string) {
+  const current = getSavedPositions();
+  if (!current.includes(pos)) {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify([...current, pos]));
+  }
+}
 
 interface EntryFormProps {
   formData: Entry;
@@ -23,6 +40,11 @@ export const EntryForm: React.FC<EntryFormProps> = ({
   handleTsSubmit,
   autoCalculateGross
 }) => {
+  const [addingNewPos, setAddingNewPos] = useState(false);
+  const [newPosInput, setNewPosInput] = useState('');
+
+  const allPositions = [...new Set([...DEFAULT_POSITIONS, ...getSavedPositions()])];
+
   const handleShowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     const defaults = JSON.parse(localStorage.getItem('pt_defaults') || '{}');
@@ -32,6 +54,26 @@ export const EntryForm: React.FC<EntryFormProps> = ({
       position: defaults[val]?.position || prev.position,
       minPayType: defaults[val]?.minPayType || prev.minPayType
     }));
+  };
+
+  const handlePositionSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === '__add_new__') {
+      setAddingNewPos(true);
+      setNewPosInput('');
+    } else {
+      setFormData({ ...formData, position: val });
+    }
+  };
+
+  const commitNewPosition = () => {
+    const trimmed = newPosInput.trim();
+    if (trimmed) {
+      savePosition(trimmed);
+      setFormData({ ...formData, position: trimmed });
+    }
+    setAddingNewPos(false);
+    setNewPosInput('');
   };
 
   return (
@@ -51,7 +93,31 @@ export const EntryForm: React.FC<EntryFormProps> = ({
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col min-w-0">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 text-center">Position</label>
-            <input type="text" value={formData.position} onChange={e => setFormData({ ...formData, position: e.target.value })} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500" placeholder="e.g. Gaffer, Grip" />
+            {addingNewPos ? (
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  autoFocus
+                  value={newPosInput}
+                  onChange={e => setNewPosInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitNewPosition(); } if (e.key === 'Escape') { setAddingNewPos(false); } }}
+                  placeholder="New position..."
+                  className="flex-1 min-w-0 bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500"
+                />
+                <button type="button" onClick={commitNewPosition} className="p-3 bg-brand-500 text-white rounded-2xl hover:bg-brand-600 transition-colors shrink-0">
+                  <Icons.Plus />
+                </button>
+              </div>
+            ) : (
+              <select
+                value={formData.position}
+                onChange={handlePositionSelect}
+                className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500"
+              >
+                {allPositions.map(p => <option key={p} value={p}>{p}</option>)}
+                <option value="__add_new__">＋ Add New Position…</option>
+              </select>
+            )}
           </div>
           <div className="flex flex-col min-w-0">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 text-center">Guarantee</label>
@@ -104,3 +170,4 @@ export const EntryForm: React.FC<EntryFormProps> = ({
     </div>
   );
 };
+

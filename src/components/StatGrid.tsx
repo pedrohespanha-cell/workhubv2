@@ -45,20 +45,35 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
 
     return (
       <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4 min-w-0">
-        {dps.map((dp, i) => (
-          <div key={i} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip cursor-pointer sm:cursor-auto min-w-0">
-            <p className="text-[9px] text-slate-400 font-black uppercase flex items-center gap-1 sm:justify-end truncate">
-              {dp.label}
-              <span className="sm:hidden text-slate-300 dark:text-slate-600"><Icons.Info /></span>
-            </p>
-            <p className={`font-black truncate ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
+        {dps.map((dp, i) => {
+          // Determine tooltip alignment to avoid clipping at edges
+          const isFirst = i === 0;
+          const isLast = i === dps.length - 1;
+          const tooltipPos = isFirst
+            ? 'left-0 -translate-x-0'
+            : isLast
+            ? 'right-0 translate-x-0'
+            : 'left-1/2 -translate-x-1/2';
+          const arrowPos = isFirst
+            ? 'left-4'
+            : isLast
+            ? 'right-4 left-auto'
+            : 'left-1/2 -translate-x-1/2';
+          return (
+            <div key={i} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip cursor-pointer sm:cursor-auto min-w-0">
+              <p className="text-[9px] text-slate-400 font-black uppercase flex items-center gap-1 sm:justify-end truncate">
+                {dp.label}
+                <span className="sm:hidden text-slate-300 dark:text-slate-600"><Icons.Info /></span>
+              </p>
+              <p className={`font-black truncate ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
 
-            <div className="absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-50 text-center font-bold">
-              {tooltips[dp.label] || 'Calculated statistic.'}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+              <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-[200] text-center font-bold ${tooltipPos}`}>
+                {tooltips[dp.label] || 'Calculated statistic.'}
+                <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${arrowPos}`}></div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
