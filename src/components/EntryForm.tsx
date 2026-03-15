@@ -25,9 +25,14 @@ interface EntryFormProps {
   isEditingEntry: boolean;
   isMobileFormOpen: boolean;
   setIsMobileFormOpen: (open: boolean) => void;
+  /** Shows from logged entries — used for filter */
   allShowsList: string[];
+  /** Shows from the productions tab — used for autocomplete & did-you-mean */
+  allProductionNames?: string[];
   handleTsSubmit: (e: React.FormEvent) => void;
   autoCalculateGross: () => void;
+  /** Called when user leaves the show name field — triggers Did You Mean */
+  onShowBlur?: (typed: string) => void;
 }
 
 export const EntryForm: React.FC<EntryFormProps> = ({
@@ -37,13 +42,17 @@ export const EntryForm: React.FC<EntryFormProps> = ({
   isMobileFormOpen,
   setIsMobileFormOpen,
   allShowsList,
+  allProductionNames = [],
   handleTsSubmit,
-  autoCalculateGross
+  autoCalculateGross,
+  onShowBlur,
 }) => {
   const [addingNewPos, setAddingNewPos] = useState(false);
   const [newPosInput, setNewPosInput] = useState('');
 
   const allPositions = [...new Set([...DEFAULT_POSITIONS, ...getSavedPositions()])];
+  // Combined autocomplete: logged shows + production names (de-duped)
+  const autocompleteShows = [...new Set([...allShowsList, ...allProductionNames])].sort();
 
   const handleShowChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -76,18 +85,35 @@ export const EntryForm: React.FC<EntryFormProps> = ({
     setNewPosInput('');
   };
 
+  // Don't render anything if not open
+  if (!isMobileFormOpen) return null;
+
   return (
-    <div className={`lg:col-span-4 lg:sticky lg:top-24 ${isMobileFormOpen ? 'fixed inset-0 z-50 bg-black/60 backdrop-blur-md p-4 flex items-center justify-center' : 'hidden lg:block'}`}>
-      <form onSubmit={handleTsSubmit} className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 space-y-4 shadow-2xl overflow-hidden animate-slide-up lg:animate-none w-full max-w-md relative">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md p-4 flex items-center justify-center">
+      <form
+        onSubmit={handleTsSubmit}
+        className="bg-white dark:bg-slate-900 p-6 rounded-[2.5rem] border border-slate-200 dark:border-slate-800 space-y-4 shadow-2xl w-full max-w-md relative animate-in zoom-in-95 duration-200"
+      >
         <div className="flex justify-between items-center mb-2">
           <h3 className="font-black text-xl tracking-tight">{isEditingEntry ? 'Edit Entry' : 'New Work Log'}</h3>
-          {isMobileFormOpen && <button type="button" onClick={() => setIsMobileFormOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><Icons.X /></button>}
+          <button type="button" onClick={() => setIsMobileFormOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><Icons.X /></button>
         </div>
 
         <div className="min-w-0">
           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1">Show / Production</label>
-          <input type="text" required list="hints" value={formData.show} onChange={handleShowChange} className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500" placeholder="Type show name..." />
-          <datalist id="hints">{allShowsList.map(s => <option key={s} value={s} />)}</datalist>
+          <input
+            type="text"
+            required
+            list="show-hints"
+            value={formData.show}
+            onChange={handleShowChange}
+            onBlur={() => formData.show && onShowBlur?.(formData.show)}
+            className="w-full bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 p-3 rounded-2xl text-sm outline-none focus:ring-2 ring-brand-500"
+            placeholder="Type show name..."
+          />
+          <datalist id="show-hints">
+            {autocompleteShows.map(s => <option key={s} value={s} />)}
+          </datalist>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -166,8 +192,8 @@ export const EntryForm: React.FC<EntryFormProps> = ({
 
         <button type="submit" className="w-full py-4 bg-brand-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all uppercase tracking-widest text-[10px] mt-2">SAVE ENTRY</button>
       </form>
-      {isMobileFormOpen && <div className="absolute inset-0 -z-10" onClick={() => setIsMobileFormOpen(false)}></div>}
+      {/* Click backdrop to close */}
+      <div className="absolute inset-0 -z-10" onClick={() => setIsMobileFormOpen(false)} />
     </div>
   );
 };
-

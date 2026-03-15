@@ -117,3 +117,40 @@ export function standardizePosition(pos: string): string {
   if (p.includes('lx') || p.includes('electric') || p.includes('lighting')) return 'Rigging LX';
   return pos; // Keep original if no match
 }
+
+/**
+ * Given a typed show name and a list of production names, returns the best-matching
+ * production name if the similarity is high enough. Returns null if no good match.
+ * Uses word-overlap + substring containment for robustness.
+ */
+export function findSimilarShowName(typed: string, productionNames: string[]): string | null {
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+  const typedNorm = normalize(typed);
+  if (!typedNorm) return null;
+
+  const typedWords = new Set(typedNorm.split(/\s+/).filter(Boolean));
+
+  let bestMatch: string | null = null;
+  let bestScore = 0;
+
+  for (const name of productionNames) {
+    const nameNorm = normalize(name);
+    if (nameNorm === typedNorm) return null; // exact match, no suggestion needed
+
+    const nameWords = nameNorm.split(/\s+/).filter(Boolean);
+    const overlap = nameWords.filter(w => typedWords.has(w)).length;
+    const unionSize = new Set([...typedWords, ...nameWords]).size;
+    const jaccardScore = unionSize > 0 ? overlap / unionSize : 0;
+
+    // Also check substring containment
+    const containsScore = nameNorm.includes(typedNorm) || typedNorm.includes(nameNorm) ? 0.7 : 0;
+    const score = Math.max(jaccardScore, containsScore);
+
+    if (score > bestScore && score >= 0.4) {
+      bestScore = score;
+      bestMatch = name;
+    }
+  }
+
+  return bestMatch;
+}

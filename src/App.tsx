@@ -15,9 +15,12 @@ import {
   parseDates,
   parseCSVLine,
   convertTo24Hour,
-  standardizePosition
+  standardizePosition,
+  findSimilarShowName
 } from './utils';
+
 import { SortFilterModal } from './components/SortFilterModal';
+import { ShowNameSuggestionModal } from './components/ShowNameSuggestionModal';
 import { parseHTMLText } from './htmlParser';
 import { parsePDFFile } from './pdfParser';
 
@@ -70,6 +73,7 @@ const App: React.FC = () => {
   const [batchEditModal, setBatchEditModal] = useState<{ isOpen: boolean, field: string, value: any }>({ isOpen: false, field: '', value: '' });
   const [pendingImports, setPendingImports] = useState<Entry[]>([]);
   const [csvReviewModal, setCSVReviewModal] = useState(false);
+  const [didYouMean, setDidYouMean] = useState<{ typed: string; suggestion: string } | null>(null);
 
   // Productions Tab States
   const [prodSearchQuery, setProdSearchQuery] = useState('');
@@ -833,15 +837,24 @@ const App: React.FC = () => {
             <button onClick={() => setMainMode('reports')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase transition-all ${mainMode === 'reports' ? 'bg-white dark:bg-slate-800 text-brand-600 shadow-md' : 'text-slate-500'}`}>Reports</button>
           </div>
           <div className="flex gap-2 items-center">
-            {/* Sort & Filter button - only visible in timesheets mode */}
+            {/* Log view controls */}
             {mainMode === 'timesheets' && (
-              <button
-                onClick={() => setIsSortFilterOpen(true)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all hover:scale-[1.02] active:scale-[0.98] ${(globalFilter !== 'All' || showFilter !== 'All' || pendingFilter) ? 'bg-brand-500 text-white border-transparent shadow-lg' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-brand-300'}`}
-              >
-                <Icons.Chart />
-                <span className="hidden sm:inline">Filter</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setIsMobileFormOpen(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider bg-brand-600 text-white shadow-lg hover:bg-brand-700 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  <Icons.Plus />
+                  <span className="hidden sm:inline">New Log</span>
+                </button>
+                <button
+                  onClick={() => setIsSortFilterOpen(true)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border transition-all hover:scale-[1.02] active:scale-[0.98] ${(globalFilter !== 'All' || showFilter !== 'All' || pendingFilter) ? 'bg-brand-500 text-white border-transparent shadow-lg' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-brand-300'}`}
+                >
+                  <Icons.Chart />
+                  <span className="hidden sm:inline">Filter</span>
+                </button>
+              </>
             )}
             {history.length > 0 && (
               <button onClick={handleUndo} className="p-2 text-brand-500 hover:bg-brand-500/10 rounded-xl transition-all" title="Undo Last Change">
@@ -863,20 +876,23 @@ const App: React.FC = () => {
           <>
             {mainMode === 'timesheets' && (
               <div className="max-w-7xl mx-auto px-4 py-8 animate-in fade-in duration-300">
-                <button onClick={() => setIsMobileFormOpen(true)} className="lg:hidden fixed bottom-8 right-8 w-16 h-16 bg-brand-600 text-white rounded-full shadow-2xl flex items-center justify-center z-40 active:scale-90 transition-transform border-4 border-white dark:border-slate-900"><Icons.Plus /></button>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                  <EntryForm
-                    formData={formData}
-                    setFormData={setFormData}
-                    isEditingEntry={isEditingEntry}
-                    isMobileFormOpen={isMobileFormOpen}
-                    setIsMobileFormOpen={setIsMobileFormOpen}
-                    allShowsList={allShowsList}
-                    handleTsSubmit={handleTsSubmit}
-                    autoCalculateGross={autoCalculateGross}
-                  />
-                  <div className="lg:col-span-8 space-y-6 pb-24">
+                {/* Entry form is always a modal */}
+                <EntryForm
+                  formData={formData}
+                  setFormData={setFormData}
+                  isEditingEntry={isEditingEntry}
+                  isMobileFormOpen={isMobileFormOpen}
+                  setIsMobileFormOpen={setIsMobileFormOpen}
+                  allShowsList={allShowsList}
+                  allProductionNames={productions.map(p => p.name)}
+                  handleTsSubmit={handleTsSubmit}
+                  autoCalculateGross={autoCalculateGross}
+                  onShowBlur={(typed) => {
+                    const suggestion = findSimilarShowName(typed, productions.map(p => p.name));
+                    if (suggestion) setDidYouMean({ typed, suggestion });
+                  }}
+                />
+                <div className="space-y-6 pb-24">
                     <StatGrid sourceData={stats} dashSettings={dashSettings} />
 
                     <div className="space-y-6">
@@ -936,7 +952,6 @@ const App: React.FC = () => {
                         />
                       ))}
                     </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -1239,6 +1254,42 @@ const App: React.FC = () => {
           onClose={() => setCSVReviewModal(false)} 
           entries={pendingImports} 
           onConfirm={commitCSVImport} 
+      />
+
+      <ShowNameSuggestionModal
+        isOpen={!!didYouMean}
+        typed={didYouMean?.typed || ''}
+        suggestion={didYouMean?.suggestion || ''}
+        affectedCount={entries.filter(e => e.show === didYouMean?.typed).length}
+        onKeep={() => setDidYouMean(null)}
+        onApplyThis={() => {
+          if (didYouMean) setFormData(prev => ({ ...prev, show: didYouMean.suggestion }));
+          setDidYouMean(null);
+        }}
+        onApplyAll={async () => {
+          if (!didYouMean) return;
+          const { typed, suggestion } = didYouMean;
+          // Also fix the current form
+          setFormData(prev => ({ ...prev, show: suggestion }));
+          // Bulk rename existing entries
+          const toRename = entries.filter(e => e.show === typed);
+          if (toRename.length) {
+            const updated = entries.map(e => e.show === typed ? { ...e, show: suggestion } : e);
+            if (!db || !user) {
+              saveToHistory(updated);
+            } else {
+              const b = writeBatch(db);
+              toRename.forEach(e => {
+                const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'entries', String(e.id));
+                b.set(ref, { ...e, show: suggestion }, { merge: true });
+              });
+              await b.commit();
+            }
+            showStatus(`Renamed "${typed}" → "${suggestion}" in ${toRename.length} entries.`);
+          }
+          setDidYouMean(null);
+        }}
+        onClose={() => setDidYouMean(null)}
       />
     </div >
   );

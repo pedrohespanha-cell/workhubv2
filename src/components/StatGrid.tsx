@@ -10,6 +10,18 @@ interface StatGridProps {
   compactMode?: boolean;
 }
 
+// YTD helpers
+const getYTDWeeks = () => {
+  const now = new Date();
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  return Math.max(1, Math.floor((now.getTime() - jan1.getTime()) / (7 * 86400000)) + 1);
+};
+const getYTDDays = () => {
+  const now = new Date();
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  return Math.max(1, Math.floor((now.getTime() - jan1.getTime()) / 86400000) + 1);
+};
+
 export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, isWeekHeader = false, compactMode = false }) => {
   if (!dashSettings) return null;
   const actualH = sourceData.actualHours ?? sourceData.actualH ?? sourceData.th ?? 0;
@@ -23,44 +35,77 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
       : (sourceData.sNames?.size ?? sourceData.shows ?? 0);
   const daysC = sourceData.days instanceof Set ? sourceData.days.size : (sourceData.days ?? 0);
 
-  // ── WEEK HEADER (compact inline stats row) ──────────────────────────────
+  // ── WEEK HEADER (compact inline row — pairs stacked) ──────────────────────
   if (isWeekHeader) {
-    const dps: { label: string; val: string | number; type: string }[] = [];
-    if (dashSettings.weekGross) dps.push({ label: 'Wk Gross', val: formatCurr(g), type: 'emerald' });
-    if (dashSettings.weekNet) dps.push({ label: 'Wk Net', val: formatCurr(n), type: 'brand' });
-    if (dashSettings.weekHourlyGross) dps.push({ label: 'Hourly Grs', val: formatCurr(actualH ? g / actualH : 0), type: 'normal' });
-    if (dashSettings.weekHourlyNet) dps.push({ label: 'Hourly Net', val: formatCurr(actualH ? n / actualH : 0), type: 'normal' });
-    if (dashSettings.weekShows) dps.push({ label: 'Shows', val: showsC, type: 'normal' });
-    if (dashSettings.weekPayableHrs) dps.push({ label: 'Payable Hrs', val: p.toFixed(1), type: 'normal' });
-    if (dashSettings.weekActualHrs) dps.push({ label: 'Actual Hrs', val: actualH.toFixed(1), type: 'normal' });
+    const showPay   = dashSettings.weekGross || dashSettings.weekNet;
+    const showHrly  = dashSettings.weekHourlyGross || dashSettings.weekHourlyNet;
+    const showShows = dashSettings.weekShows;
+    const showPayH  = dashSettings.weekPayableHrs;
+    const showActH  = dashSettings.weekActualHrs;
 
-    const tooltips: Record<string, string> = {
-      'Wk Gross': 'Total Gross for this week.',
-      'Wk Net': 'Total Net for this week.',
-      'Hourly Grs': 'Weekly Gross ÷ Actual Hrs Worked',
-      'Hourly Net': 'Weekly Net ÷ Actual Hrs Worked',
-      'Shows': 'Total unique productions this week.',
-      'Payable Hrs': 'Total billable hours (includes guarantees).',
-      'Actual Hrs': 'Total exact clock-in/out hours.'
-    };
+    // Build solo stat items (non-paired)
+    type SoloStat = { label: string; val: string; key: string };
+    const solos: SoloStat[] = [];
+    if (showShows) solos.push({ key: 'shows', label: 'Shows', val: String(showsC) });
+    if (showPayH)  solos.push({ key: 'payH', label: 'Payable Hrs', val: p.toFixed(1) });
+    if (showActH)  solos.push({ key: 'actH', label: 'Actual Hrs', val: actualH.toFixed(1) });
+
+    const allSlots = [
+      ...(showPay  ? ['pay']   : []),
+      ...(showHrly ? ['hrly']  : []),
+      ...solos.map(s => s.key),
+    ];
+
+    const tooltipPos = (i: number) => i === 0 ? 'left-0' : i === allSlots.length - 1 ? 'right-0' : 'left-1/2 -translate-x-1/2';
+    const arrowPos   = (i: number) => i === 0 ? 'left-4' : i === allSlots.length - 1 ? 'right-4 left-auto' : 'left-1/2 -translate-x-1/2';
+
+    let slotIdx = 0;
 
     return (
-      <div className="flex gap-4 sm:gap-6 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4 min-w-0">
-        {dps.map((dp, i) => {
-          const isFirst = i === 0;
-          const isLast = i === dps.length - 1;
-          const tooltipPos = isFirst ? 'left-0' : isLast ? 'right-0' : 'left-1/2 -translate-x-1/2';
-          const arrowPos = isFirst ? 'left-4' : isLast ? 'right-4 left-auto' : 'left-1/2 -translate-x-1/2';
+      <div className="flex gap-4 sm:gap-5 flex-wrap mt-2 md:mt-0 justify-start md:justify-end flex-1 pr-4 min-w-0">
+
+        {/* Wk Pay: gross + net stacked */}
+        {showPay && (() => {
+          const idx = slotIdx++;
           return (
-            <div key={i} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip cursor-pointer sm:cursor-auto min-w-0">
-              <p className="text-[9px] text-slate-400 font-black uppercase flex items-center gap-1 sm:justify-end truncate">
-                {dp.label}
-                <span className="sm:hidden text-slate-300 dark:text-slate-600"><Icons.Info /></span>
-              </p>
-              <p className={`font-black truncate ${dp.type === 'emerald' ? 'text-emerald-500' : dp.type === 'brand' ? 'text-brand-500' : 'text-slate-700 dark:text-slate-300'}`}>{dp.val}</p>
-              <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-[200] text-center font-bold ${tooltipPos}`}>
-                {tooltips[dp.label] || 'Calculated statistic.'}
-                <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${arrowPos}`}></div>
+            <div key="pay" className="text-left md:text-right flex-1 md:flex-none relative group/tooltip min-w-0">
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider sm:text-right mb-0.5">Wk Pay</p>
+              {dashSettings.weekGross && <p className="font-black text-emerald-500 leading-tight truncate">{formatCurr(g)}</p>}
+              {dashSettings.weekNet   && <p className="text-sm font-black text-brand-500 leading-tight truncate opacity-80">{formatCurr(n)}</p>}
+              <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-[200] text-center font-bold ${tooltipPos(idx)}`}>
+                Weekly gross (top) and net (bottom) pay.
+                <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${arrowPos(idx)}`}></div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Hourly Rate: gross + net stacked */}
+        {showHrly && (() => {
+          const idx = slotIdx++;
+          return (
+            <div key="hrly" className="text-left md:text-right flex-1 md:flex-none relative group/tooltip min-w-0">
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider sm:text-right mb-0.5">$/hr</p>
+              {dashSettings.weekHourlyGross && <p className="font-black text-emerald-500 leading-tight truncate">{formatCurr(actualH ? g / actualH : 0)}</p>}
+              {dashSettings.weekHourlyNet   && <p className="text-sm font-black text-brand-500 leading-tight truncate opacity-80">{formatCurr(actualH ? n / actualH : 0)}</p>}
+              <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-[200] text-center font-bold ${tooltipPos(idx)}`}>
+                Effective hourly rate — gross (top), net (bottom).
+                <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${arrowPos(idx)}`}></div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Solo stats */}
+        {solos.map((s) => {
+          const idx = slotIdx++;
+          return (
+            <div key={s.key} className="text-left md:text-right flex-1 md:flex-none relative group/tooltip min-w-0">
+              <p className="text-[9px] text-slate-400 font-black uppercase tracking-wider sm:text-right truncate">{s.label}</p>
+              <p className="font-black text-slate-700 dark:text-slate-300 truncate">{s.val}</p>
+              <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-48 bg-slate-800 text-white text-[10px] p-2 rounded-xl shadow-xl z-[200] text-center font-bold ${tooltipPos(idx)}`}>
+                {s.label === 'Shows' ? 'Unique productions this week.' : s.label === 'Payable Hrs' ? 'Billable hours (incl. guarantees).' : 'Exact clock-in/out hours.'}
+                <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${arrowPos(idx)}`}></div>
               </div>
             </div>
           );
@@ -69,37 +114,23 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
     );
   }
 
-  // ── DASHBOARD STAT CARDS ─────────────────────────────────────────────────
-  // Build "groups" of cards. Gross+Net pairs are merged into one card;
-  // solo stats get their own card.
+  // ── DASHBOARD STAT CARDS ────────────────────────────────────────────────
   type StatCard = {
     key: string;
     label: string;
     primaryVal: string;
+    primarySub?: string;   // smaller sub-text line (e.g. "/ 11 YTD")
     primaryColor: 'emerald' | 'brand' | 'normal';
     secondaryVal?: string;
     secondaryColor?: 'emerald' | 'brand';
     tooltip: string;
-    secondaryTooltip?: string;
-    secondaryLabel?: string;
   };
 
   const cards: StatCard[] = [];
+  const ytdWeeks = getYTDWeeks();
+  const ytdDays  = getYTDDays();
 
-  const tooltipMap: Record<string, string> = {
-    'Total Pay':      'Total Gross (top) and Net (bottom) pay across all logs.',
-    'Hourly Rate':    'Effective gross (top) and net (bottom) rate per actual hour.',
-    'Actual Hrs':     'Sum of exact clock-in/out hours.',
-    'Payable Hrs':    'Billable hours including guarantees and overtime.',
-    'Days Worked':    'Total unique calendar days logged.',
-    'Shows Worked':   'Total unique productions logged.',
-    'Weeks Worked':   'Total unique payroll weeks active.',
-    'Avg / Week':     'Average gross (top) and net (bottom) pay per week.',
-    'Avg / Month':    'Average gross (top) and net (bottom) pay per month.',
-    'Avg YTD/Wk':     'Year-to-date gross average per week.',
-  };
-
-  // Pair: Total Gross + Total Net → one card
+  // Total Pay (gross + net)
   if (dashSettings.gross || dashSettings.net) {
     cards.push({
       key: 'pay',
@@ -108,12 +139,11 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
       primaryColor: 'emerald',
       secondaryVal: dashSettings.gross && dashSettings.net ? formatCurr(n) : undefined,
       secondaryColor: 'brand',
-      secondaryLabel: 'net',
-      tooltip: tooltipMap['Total Pay'],
+      tooltip: 'Total Gross (top) and Net (bottom) pay across all logs.',
     });
   }
 
-  // Pair: Hourly Gross + Hourly Net → one card
+  // Hourly Rate (gross + net)
   if (dashSettings.hourlyGross || dashSettings.hourlyNet) {
     cards.push({
       key: 'hourly',
@@ -122,18 +152,41 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
       primaryColor: 'emerald',
       secondaryVal: dashSettings.hourlyGross && dashSettings.hourlyNet ? formatCurr(actualH ? n / actualH : 0) : undefined,
       secondaryColor: 'brand',
-      secondaryLabel: 'net',
-      tooltip: tooltipMap['Hourly Rate'],
+      tooltip: 'Effective hourly rate — gross (top), net (bottom).',
     });
   }
 
-  if (dashSettings.actualHrs) cards.push({ key: 'actualH', label: 'Actual Hrs', primaryVal: actualH.toFixed(1) + 'h', primaryColor: 'normal', tooltip: tooltipMap['Actual Hrs'] });
-  if (dashSettings.payableHrs) cards.push({ key: 'payableH', label: 'Payable Hrs', primaryVal: p.toFixed(1) + 'h', primaryColor: 'normal', tooltip: tooltipMap['Payable Hrs'] });
-  if (dashSettings.days) cards.push({ key: 'days', label: 'Days Worked', primaryVal: String(daysC), primaryColor: 'normal', tooltip: tooltipMap['Days Worked'] });
-  if (dashSettings.shows) cards.push({ key: 'shows', label: 'Shows Worked', primaryVal: String(showsC), primaryColor: 'normal', tooltip: tooltipMap['Shows Worked'] });
-  if (dashSettings.weeksWorked) cards.push({ key: 'weeks', label: 'Weeks Worked', primaryVal: String(sourceData.weeksWorked || 0), primaryColor: 'normal', tooltip: tooltipMap['Weeks Worked'] });
+  if (dashSettings.actualHrs)  cards.push({ key: 'actualH',  label: 'Actual Hrs',  primaryVal: actualH.toFixed(1) + 'h', primaryColor: 'normal', tooltip: 'Sum of exact clock-in/out hours.' });
+  if (dashSettings.payableHrs) cards.push({ key: 'payableH', label: 'Payable Hrs', primaryVal: p.toFixed(1) + 'h',      primaryColor: 'normal', tooltip: 'Billable hours including guarantees and OT.' });
 
-  // Pair: Avg/Week gross + net → one card
+  // Days on Set / YTD
+  if (dashSettings.days) {
+    cards.push({
+      key: 'days',
+      label: 'Days on Set / YTD',
+      primaryVal: String(daysC),
+      primarySub: `/ ${ytdDays}d elapsed`,
+      primaryColor: 'normal',
+      tooltip: `${daysC} days logged vs. ${ytdDays} calendar days elapsed this year.`,
+    });
+  }
+
+  if (dashSettings.shows) cards.push({ key: 'shows', label: 'Shows Worked', primaryVal: String(showsC), primaryColor: 'normal', tooltip: 'Total unique productions logged.' });
+
+  // Active Weeks / YTD
+  if (dashSettings.weeksWorked) {
+    const worked = sourceData.weeksWorked || 0;
+    cards.push({
+      key: 'weeks',
+      label: 'Active Wks / YTD',
+      primaryVal: String(worked),
+      primarySub: `/ ${ytdWeeks} wks elapsed`,
+      primaryColor: 'normal',
+      tooltip: `${worked} weeks worked vs. ${ytdWeeks} weeks elapsed this year.`,
+    });
+  }
+
+  // Avg / Week (gross + net)
   if (dashSettings.avgPerWeek) {
     cards.push({
       key: 'avgWeek',
@@ -142,12 +195,11 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
       primaryColor: 'emerald',
       secondaryVal: sourceData.weeksWorked ? formatCurr(n / sourceData.weeksWorked) : undefined,
       secondaryColor: 'brand',
-      secondaryLabel: 'net',
-      tooltip: tooltipMap['Avg / Week'],
+      tooltip: 'Average gross (top) and net (bottom) pay per week worked.',
     });
   }
 
-  // Pair: Avg/Month gross + net → one card
+  // Avg / Month (gross + net)
   if (dashSettings.avgPerMonth) {
     cards.push({
       key: 'avgMonth',
@@ -156,28 +208,21 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
       primaryColor: 'emerald',
       secondaryVal: sourceData.monthsWorked ? formatCurr(n / sourceData.monthsWorked) : undefined,
       secondaryColor: 'brand',
-      secondaryLabel: 'net',
-      tooltip: tooltipMap['Avg / Month'],
+      tooltip: 'Average gross (top) and net (bottom) pay per month.',
     });
   }
 
-  // YTD average per week
-  if (dashSettings.avgPerWeek) {
-    const now = new Date();
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
-    const weeksSoFar = Math.ceil((now.getTime() - startOfYear.getTime()) / (7 * 86400000));
-    if (weeksSoFar > 0) {
-      cards.push({
-        key: 'ytdWeek',
-        label: 'Avg YTD/Wk',
-        primaryVal: formatCurr(g / weeksSoFar),
-        primaryColor: 'emerald',
-        secondaryVal: formatCurr(n / weeksSoFar),
-        secondaryColor: 'brand',
-        secondaryLabel: 'net',
-        tooltip: tooltipMap['Avg YTD/Wk'],
-      });
-    }
+  // Avg YTD / Week
+  if (dashSettings.avgPerWeek && ytdWeeks > 0) {
+    cards.push({
+      key: 'ytdWeek',
+      label: 'Avg YTD / Wk',
+      primaryVal: formatCurr(g / ytdWeeks),
+      primaryColor: 'emerald',
+      secondaryVal: formatCurr(n / ytdWeeks),
+      secondaryColor: 'brand',
+      tooltip: `YTD average gross (top) / net (bottom) per week (${ytdWeeks} wks elapsed).`,
+    });
   }
 
   return (
@@ -193,13 +238,15 @@ export const StatGrid: React.FC<StatGridProps> = ({ sourceData, dashSettings, is
             <p className={`text-xl font-black leading-tight ${card.primaryColor === 'emerald' ? 'text-emerald-500' : card.primaryColor === 'brand' ? 'text-brand-500' : ''}`}>
               {card.primaryVal}
             </p>
+            {card.primarySub && (
+              <p className="text-[10px] font-black text-slate-400 leading-tight mt-0.5">{card.primarySub}</p>
+            )}
             {card.secondaryVal && (
               <p className={`text-sm font-black leading-tight mt-0.5 ${card.secondaryColor === 'brand' ? 'text-brand-500 opacity-80' : 'text-emerald-500 opacity-80'}`}>
                 {card.secondaryVal}
               </p>
             )}
           </div>
-          {/* Tooltip */}
           <div className={`absolute opacity-0 group-hover/tooltip:opacity-100 pointer-events-none transition-opacity bottom-full mb-2 w-52 bg-slate-800 text-white text-[10px] p-3 rounded-2xl shadow-xl z-50 text-center font-bold ${i % 4 === 0 ? 'left-0' : i % 4 === 3 ? 'right-0' : 'left-1/2 -translate-x-1/2'}`}>
             {card.tooltip}
             <div className={`absolute top-full border-4 border-transparent border-t-slate-800 ${i % 4 === 0 ? 'left-4' : i % 4 === 3 ? 'right-4 left-auto' : 'left-1/2 -translate-x-1/2'}`}></div>
