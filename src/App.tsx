@@ -396,6 +396,7 @@ const App: React.FC = () => {
       days: daysSet.size,
       shows: showsSet.size,
       weeksWorked: weeksSet.size,
+      monthsWorked: monthsSet.size,
       avgPerWeek: weeksSet.size ? g / weeksSet.size : 0,
       avgPerMonth: monthsSet.size ? g / monthsSet.size : 0,
       pending: pendingChecks,
@@ -879,6 +880,36 @@ const App: React.FC = () => {
                     <StatGrid sourceData={stats} dashSettings={dashSettings} />
 
                     <div className="space-y-6">
+                      {/* Active Filter Badges */}
+                      {(globalFilter !== 'All' || showFilter !== 'All' || pendingFilter) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Filtered:</span>
+                          {globalFilter !== 'All' && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-500/15 text-brand-600 dark:text-brand-400 text-[10px] font-black uppercase tracking-wider">
+                              {globalFilter}
+                              <button onClick={() => setGlobalFilter('All')} className="hover:text-rose-500 transition-colors"><Icons.X /></button>
+                            </span>
+                          )}
+                          {showFilter !== 'All' && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider">
+                              {showFilter}
+                              <button onClick={() => setShowFilter('All')} className="hover:text-rose-500 transition-colors"><Icons.X /></button>
+                            </span>
+                          )}
+                          {pendingFilter && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-orange-500/15 text-orange-600 dark:text-orange-400 text-[10px] font-black uppercase tracking-wider">
+                              Pending Pay
+                              <button onClick={() => setPendingFilter(false)} className="hover:text-rose-500 transition-colors"><Icons.X /></button>
+                            </span>
+                          )}
+                          <button
+                            onClick={() => { setGlobalFilter('All'); setShowFilter('All'); setPendingFilter(false); }}
+                            className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-rose-500 transition-colors ml-1"
+                          >
+                            Clear All
+                          </button>
+                        </div>
+                      )}
                       {weeklyGroups.length === 0 ? (
                         <div className="text-center p-12 bg-white/50 dark:bg-slate-900/50 rounded-[2.5rem] border border-dashed dark:border-slate-800"><p className="text-slate-500 font-bold">No logs found for this filter.</p></div>
                       ) : weeklyGroups.map(([wk, wd]) => (
@@ -1198,8 +1229,9 @@ const App: React.FC = () => {
           isOpen={batchEditModal.isOpen} 
           onClose={() => setBatchEditModal({ ...batchEditModal, isOpen: false })} 
           onSave={handleBulkEditSave}
-          selectedCount={selectedEntryIds.size}
+          selectedEntries={entries.filter(e => selectedEntryIds.has(e.id))}
           productions={productions}
+          allShowsList={allShowsList}
       />
 
       <CSVReviewModal 
