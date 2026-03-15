@@ -791,7 +791,7 @@ const App: React.FC = () => {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     };
-    link.setAttribute("download", `payroll_export_${exportDateStr()}.csv`);
+    link.setAttribute("download", `workhub_payroll_backup_${exportDateStr()}_${entries.length}entries.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
